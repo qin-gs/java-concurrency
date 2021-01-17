@@ -96,16 +96,42 @@ wait(0) == wait() 传入负数 -> 抛出IllegalArgumentException
 ### 1.11 ThreadLocal
    创建一个ThreadLocal变量，访问该变量的每个线程都会有一个该变量的本地副本；操作该变量时，操作的是
 自己本地内存里的变量，避免线程安全问题。
+#### 实现原理
+Thread 里面有两个 ThreadLocalMap(threadLocals, inheritableThreadLocals)
+threadLocal类型的本地变量存放在具体的线程内存空间中  
+每个线程的本地变量不存放在ThreadLocal实例里面，而是存放在调用线程的threadLocals变量里面  
+子线程访问父线程的变量  
+```
+ThreadLocal<String> local = new InheritableThreadLocal<>();
+```
+
+## 2. 并发编程
+
+### 2.1 多线程并发编程
+* 并发：一段时间内多个任务同时执行
+* 并行：同一时刻多个任务同时执行
+* 线程安全问题：多个线程同时读写一个共享资源且没有任何同步措施时，导致出现脏数据或其他不可预见的问题。
+* Java内存模型：所有的变量都存放在主内存中，当线程使用变量时，会把主内存中的变量复制到自己的工作内存，线程读写
+变量时操作的是自己工作内存中的变量，处理完后同步回主内存
+* 内存可见性问题 (CPU寄存器 -> 缓存 -> 主内存)
+* synchronized 监视器锁 (阻塞线程 需要从用户态 切换到 内核态)
+  * 获取锁后：清空本地内存变量，全部从主内存中获取
+  * 释放锁前：将本地内存的修改同步回主内存
+* volatile 使用场景 (提供可见性，不保证原子性)
+  * 写入值不依赖当前值
+  * 读写变量时没有加锁
+### 2.7 java中的原子操作
+set get方法都要synchronized，来保证可见性
+
+### 2.9 Unsafe类
+Unsafe类提供硬件级别的原子操作，都是native方法  
+rt.jar提供，由Bootstrap classloader加载  
+main方法由 application classloader加载，因此无法直接使用(用反射)
 
 
-
-
-
-
-
-
-
-
+### 2.10 指令重排序
+java内存模型运行编译器和处理器对指令重排序以提高运行性能，并且只会对不存在数据依赖的指令重排序  
+单线程下可以保证最终的执行结果与程序顺序执行的结果一致，多线程会存在问题  
 
 
 
