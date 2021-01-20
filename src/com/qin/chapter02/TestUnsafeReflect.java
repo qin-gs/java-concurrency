@@ -1,6 +1,5 @@
 package com.qin.chapter02;
 
-import com.qin.proxy.first.Test;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
