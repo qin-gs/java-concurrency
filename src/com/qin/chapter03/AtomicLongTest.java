@@ -11,7 +11,6 @@ public class AtomicLongTest {
 
     public static void main(String[] args) throws InterruptedException {
         Thread threadOne = new Thread(() -> {
-            int size = arrayOne.length;
             for (Integer integer : arrayOne) {
                 if (integer == 0) {
                     atomicLong.incrementAndGet();
@@ -20,7 +19,6 @@ public class AtomicLongTest {
         });
 
         Thread threadTwo = new Thread(() -> {
-            int size = arrayTwo.length;
             for (Integer integer : arrayTwo) {
                 if (integer == 0) {
                     atomicLong.incrementAndGet();
