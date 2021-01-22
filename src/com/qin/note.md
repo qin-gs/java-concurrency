@@ -205,6 +205,121 @@ valueOffset = unsafe.objectFieldOffset(AtomicLong.class.getDeclaredField("value"
 ```
 
 ### 4.2 LongAdder(原子性递增或递减类)
-AtomicLong的瓶颈为 多线程竞争同一个原子变量
-LongAddr 内部维护多个Cell，争夺多个变量就
+AtomicLong的瓶颈为 多线程竞争同一个原子变量  
+LongAddr 内部维护多个Cell，争夺单个变量操作的线程量就会减少  
+多个线程争夺同一个Cell原子变量失败了，并不是在当前Cell变量上一直自旋CAS重试，而是尝试在其他Cell变量上进行CAS尝试，
+这个改变郑家了当前线程重试CAS成功的可能性。最后在获取LongAdder当前值时，把所有Cell变量的value值累加后加上base返回  
+
+Cell 原子性更新数组 2^n 是一个AtomicLong的改进，解决伪共享的问题
+
+使用@Content修饰，放置多个元素共享一个缓存行，提高性能  
+![LongAdderUML图](imgs/LongAdderUML.png)  
+
+Striped64  
+1. base: long 真实值为(base + Cell[i ... n])  
+2. cellsBusy: volatile int 实现自旋锁(0, 1) 创建Cell元素，扩容Cell数组或初始化Cell数组时，
+   用CAS操作保证同时只有一个线程可以进行其中之一操作  
+3. cells: volatile Cell[]  
+
+  1. LongAdder的结构是怎样的?  包装一个`volatile long value`  
+  2. 当前线程应该出问Cell数组里面的哪一个Cell元素? 当前线程应该访问cells 数组的哪一个Cell元素是通过getProbe() & m 进行计算的，
+     其中m 是当前cells 数组元素个数－ 1 , getProbe()则用于获取当前线程中变量threadLocalRandomProbe 的值，这个值一开始为0 ，
+     后面其进行初始化。  
+  3. 如何初始化Cell数组? cellsBusy 是一个标示，为0说明当前cells 数组没有在被初始化或者扩容，也没有在新建Cell元素，
+     为1则说明cells数组在被初始化或者扩容，或者当前在创建新的Cell 元素、通过CAS操作来进行0或1状态的切换  
+  4. Cell数组如何扩容? 当前cells的元素个数小于当前机器CPU 个数并且当前多个线程访问了cells中同一个元素
+     从而导致冲突使其中一个线程CAS 失败时才会进行扩容操作,将容量扩充为之前的2倍  
+  5. 线程访问分配的Cell 元素有冲突后如何处理? 对CAS 失败的线程重新计算当前线程的随机值threadLocalRandomProbe,以减少下次访问cells 元素时的冲突机会  
+  6. 如何保证线程操作被分配的Cell元素的原子性? cas函数通过CAS 操作，保证了当前线程更新时被分配的Cell元素中value值的原子性。
+      使用@Contented避免伪共享  
+
+### 4.3 LongAccumulator
+LongAdder是LongAccumulator的一个特例  
+LongAdder 只能提高默认的0值  
+LongAccumulator 可以提供非0的初始值，指定累加规则  
+
+
+## Java并发包中的List源码剖析(CopyOnWriteArrayList)
+线程安全：进行的修改哦操作都是在底层的一个复制数组(快照)上进行的  
+有一个array数组存放具体的元素，ReentrantLock(独占锁)保证同时只有一个线程对array进行修改  
+
+### 5.2 代码解析
+
+1. 初始化  
+   无参构造函数：创建大小为0的Object数组作为array的初始值  
+   参数为 E[]: 创造一个list，将传入的数组元素复制进去  
+   参数为 Collection 将传入集合的元素复制进去  
+
+
+2. 添加元素 `add(E e)`  
+    1. 获取独占锁 `ReentrantLock`  
+    2. 获取存放元素的`array`  
+    3. 复制array到另一个新创建的数组(新数组的长度为原来的+1 因此是无界的)，添加新元素e到新数组  
+    4. 使用新数组替换原来的  
+    5. 释放独占锁  
+
+3. 获取指定位置的元素`get(int index)`  
+    1. 获取array数组  
+    2. 通过下标访问指定位置的元素  
+
+4. 修改指定位置的元素`set(int index, E element)`  
+    1. 获取独占锁  
+    2. 获取存放元素的array  
+    3. 调用get方法获取指定位置的元素：  
+       * 如果指定位置的元素值和新值不一样，新建一个数组并复制所有的元素  
+       * 如果相同，为了保证volatile语义，还要重新设置array  
+    4. 释放独占锁  
+
+5. 删除元素`remove(int index)`  
+    1. 获取独占锁
+    2. 获取存放元素的数组array
+    3. 获取指定位置的元素
+    4. 新建一个数组存放元素  
+       * 如果要删除的是最后一个元素：复制一次Arrays.copyOf(elements, len-1)  
+       * 否则：分两次复制
+    5. 使用新数组代替原来的
+    6. 释放独占锁  
+       
+6. 弱一致性的迭代器  
+COWIterator 存放数组的快照`snapshot`, 获取到给定的迭代器后，其他线程对该list的修改不可见，操作的是两个不同的数组  
+
+## java并发包中的锁原理
+1. LockSupport工具类(rt.jar)  
+  该工具类用来挂起和唤醒线程，是创建锁和其他同步类的基础  
+   LockSupport类与每个使用它的线程都会关联一个许可证，默认情况下调用LockSupport类的方法的线程是不持有许可证的，使用Unsafe类实现  
+   
+2. AbstractQueuedSynchronizer 抽象同步队列  
+  FIFO双向队列，通过节点(Node) head 和tail 记录队首和队尾  
+   thread变量用来存放进入AQS队列里的线程；
+   shared用来标记该线程是获取共享资源时被阻塞挂起后放入AQS队列的；
+   exclusive用来标记线程时获取独占资源时被挂起后放入AQS队列的；
+   waitStatus记录当前线程等待状态
+     * cancelled 线程被取消
+     * signal 线程需要被唤醒
+     * condition 线程在条件队列里等待
+     * propagate 释放共享资源时需要通知其他节点
+   prev记录当前节点的前驱节点；
+   next记录当前节点的后继节点
+       
+   维护一个单一的状态信息：state
+     * ReentrantLock 当前线程获取锁的可重入次数
+     * ReentrantReadWriteLock 高16位表示读状态(获取读锁的次数)，低16为表示获取到写锁线程的可重入次数  
+     * Semaphore 当前可以信号个数
+     * CountDownlatch 当前计数器的值
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
