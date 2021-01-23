@@ -305,13 +305,23 @@ COWIterator 存放数组的快照`snapshot`, 获取到给定的迭代器后，�
      * ReentrantLock 当前线程获取锁的可重入次数
      * ReentrantReadWriteLock 高16位表示读状态(获取读锁的次数)，低16为表示获取到写锁线程的可重入次数  
      * Semaphore 当前可以信号个数
-     * CountDownlatch 当前计数器的值
+     * CountDownLatch 当前计数器的值
     
+   ConditionObject内部类(结合锁实现线程同步)  
+     * 条件变量(每个条件表里对应一个条件队列(单向链表队列firstWaiter, lastWaiter)，用来存放条件变量的await方法后被阻塞的线程)
+    
+   线程同步的关键是对状态值state进行操作。根据state是否属于一个线程，操作方式分为独占式 和 共享式
+     * 独占式 (acquire, acquireInterruptibly, release)  
+     * 共享式 (acquireShared acquireSharedInterruptibly releaseShared)  
+    
+   使用独占方式获取的资源是与其他线程绑定的(ReentrantLock)  
+   共享方式获取的资源是与具体线程不相关的(Semaphore)  
 
 
+3. 独占锁ReentrantLock原理
 
-
-
+  ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数  
+  1. 获取锁 lock()
 
 
 
