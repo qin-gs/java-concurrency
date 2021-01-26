@@ -1,6 +1,7 @@
 package com.qin;
 
 import java.util.Arrays;
+import java.util.List;
 
 public class Main {
 
@@ -8,8 +9,46 @@ public class Main {
 
     public static void main(String[] args) {
 
-        new Thread(() -> local.set("son thread"));
+        ListNode<String> head = new ListNode<>("a");
+        head.next = new ListNode<>("b");
+        head.next.next = new ListNode<>("c");
+        head.next.next.next = new ListNode<>("d");
 
-        local.set("main thread");
+        System.out.println("head = " + head);
+        head = reverse(head);
+        System.out.println("head = " + head);
+    }
+
+    public static ListNode<String> reverse(ListNode<String> head) {
+        if (head == null) {
+            return null;
+        }
+        ListNode<String> pre = null;
+        ListNode<String> curr = head;
+        ListNode<String> next = null;
+        while (curr != null) {
+            next = curr.next;
+            curr.next = pre;
+            pre = curr;
+            curr = next;
+        }
+        return pre;
+    }
+}
+
+class ListNode<T> {
+    T val;
+    ListNode<T> next;
+
+    public ListNode(T val) {
+        this.val = val;
+    }
+
+    @Override
+    public String toString() {
+        return "ListNode{" +
+                "val=" + val +
+                ", next=" + next +
+                '}';
     }
 }
