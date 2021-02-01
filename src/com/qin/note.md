@@ -296,7 +296,7 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
 6. 弱一致性的迭代器  
    COWIterator 存放数组的快照`snapshot`, 获取到给定的迭代器后，其他线程对该list的修改不可见，操作的是两个不同的数组
 
-## java并发包中的锁原理
+## 6.java并发包中的锁原理
 
 1. LockSupport工具类(rt.jar)  
    该工具类用来挂起和唤醒线程，是创建锁和其他同步类的基础  
@@ -330,55 +330,82 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
 
 3. 独占锁ReentrantLock原理
 
-ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数
+   ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数
 
-1. 获取锁 lock()  
-   非公平锁
-    * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
-      设置AQS的状态值为1，直接返回
-    * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
-    * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起  
-      公平锁
-    * 会判断是否有前驱节点
+    1. 获取锁 lock()  
+       非公平锁
+        * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
+          设置AQS的状态值为1，直接返回
+        * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
+        * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起  
+          公平锁
+        * 会判断是否有前驱节点
 
-2. lockInterruptibly()  
-   相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
+    2. lockInterruptibly()  
+       相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
 
-3. tryLock() 非公平  
-   尝试获取锁，如果当前锁没有被其他线程持有，则当前线程获取该锁并返回true，该方法不会引起当前线程阻塞
+    3. tryLock() 非公平  
+       尝试获取锁，如果当前锁没有被其他线程持有，则当前线程获取该锁并返回true，该方法不会引起当前线程阻塞
 
-4. tryLock(long timeout, TimeUnit unit)  
-   尝试获取锁，设置了超时时间，规定时间内没有获取到锁，返回false
+    4. tryLock(long timeout, TimeUnit unit)  
+       尝试获取锁，设置了超时时间，规定时间内没有获取到锁，返回false
 
-5. unlock()  
-   释放锁
-    * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
-    * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
+    5. unlock()  
+       释放锁
+        * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
+        * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
 
 4. ReentrantReadWriteLock原理 读写分离，允许多个线程可以同时获取读锁
 
-1. 类图  
-   读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 依次表示 读状态 和 写状态(最大可重入次数为65535)  
-   firstReader 记录第一个获取到读锁的线程  
-   firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数  
-   cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数  
-   readHolds (ThreadLocal)存放除去第一个线程外的其他线程获取读锁的可重入次数
+    1. 类图  
+       读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 依次表示 读状态 和 写状态(最大可重入次数为65535)  
+       firstReader 记录第一个获取到读锁的线程  
+       firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数  
+       cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数  
+       readHolds (ThreadLocal)存放除去第一个线程外的其他线程获取读锁的可重入次数
 
-2. 写锁(WriteLock)的获取与释放
-    1. lock()  
-       独占锁+可重入锁，某个时刻只能有一个线程获取该锁  
-       判断是否有其他线程获取读锁
-    2. lockInterruptibly() 会对中断进行相应
-    3. tryLock()  
-       尝试获取写锁，非公平策略
-    4. tryLock(long timeout, TimeUnit unit)  
-       如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false  
-       该方法会相应中断(如果其他线程调用该线程的interrupt()，则抛出异常)
-    5. unLock()  
-       尝试释放锁，判断低16位(将状态值-1)
+    2. 写锁(WriteLock)的获取与释放
+        1. lock()  
+           独占锁+可重入锁，某个时刻只能有一个线程获取该锁  
+           判断是否有其他线程获取读锁
+        2. lockInterruptibly() 会对中断进行相应
+        3. tryLock()  
+           尝试获取写锁，非公平策略
+        4. tryLock(long timeout, TimeUnit unit)  
+           如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false  
+           该方法会相应中断(如果其他线程调用该线程的interrupt()，则抛出异常)
+        5. unLock()  
+           尝试释放锁，判断低16位(将状态值-1)
 
-3. 读锁(ReadLock)的获取与释放
-    1. lock()
+    3. 读锁(ReadLock)的获取与释放
+        1. lock()
+
+## 7. Java并发包中队列原理
+
+阻塞队列 锁  
+非阻塞队列 CAS
+
+1. ConcurrentLinkedQueue  
+   线程安全的无界非阻塞队列，CAS  
+   单项链表实现 两个 volatile Node 存放队列首位节点  
+   使用Unsafe工具类提供的CAS算法保证出入队时操作链表的原子性
+
+    1. offer()  
+       在队列末尾添加一个元素，如果传递的参数为null，抛出空指针异常，使用CAS无阻塞算法，不会挂起调用的线程
+
+2. LinkedBlockingQueue  
+   有界阻塞 独占锁实现  
+   单向链表  
+   Node<E> head last 存放首位节点  
+   AtomicInteger count 记录队列元素个数  
+   ReentrantLock takeLock putLock 控制出队入队的原子性  
+   Condition notEmpty notFull 条件变量，内部存在一个条件队列存放入队出队被阻塞的线程
+   
+    1. offer(E e)  
+        向队列尾部插入一个元素，成功则返回true，如果队列已满丢弃其当前元素返回false  
+       如果e为null抛出空指针异常 非阻塞的  
+       
+
 
 ## 线程池原理
 
@@ -492,15 +519,34 @@ ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取�
 
     1. await() await(timeout, unit)
        调用该方法时，当前线程会被阻塞，直到：
-        1. parties个线程都调用了await方阿飞，所有的线程都到了屏障点
+        1. parties个线程都调用了await方法，所有的线程都到了屏障点
         2. 其他线程调用了当前线程的interrupt()方法中断当前线程
         3. 与当前屏障点关联的Generation对象的broken标志被设置为true，抛出BrokenBarrierException异常
-       
+
     2. dowait(timed, nanos)
 
 
-3. Semaphore
-    内部计数器递增
+3. Semaphore 内部计数器递增 默认为非公平策略
+   ```
+        new Semaphore(2, true); // 公平策略 
+   ```
+
+    1. acquire()  acquire(permits)  
+       如果当前信号量>0，直接返回，否则将当前线程放入AQS的阻塞队列中(当其他线程调用了当前线程的interrupt()方法后，当前线程抛异常返回)  
+       可以响应中断  
+       for(;;) 获取当前信号量的值 计算当前剩余值  
+       如果当前剩余值<0(直接返回负数) 或 CAS设置成功(返回剩余值)  
+       公平锁：会先判断当前线程节点的前去节点是否也在等待获取该资源，是的话自己放弃获取的权限，放入AQS阻塞队列，否则去获取
+
+       可以获取permits个信号量
+
+    2. acquireUniterruptibly() acquireUniterruptibly(permits)  
+       该方法不响应中断(其他线程调用了当前线程的interrupt()方法后，当前线程不会抛出异常)
+
+    3. release() release(permits)  
+       将当前信号量的值+1，如果有线程因为调用acquire方法而被阻塞放入AQS阻塞队列，会根据公平策略选择一个信号量个数能被满足的 线程进行激活，激活的线程会尝试获取刚增加的信号量  
+       
+       
 
 
 
