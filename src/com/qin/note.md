@@ -396,16 +396,72 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
 2. LinkedBlockingQueue  
    有界阻塞 独占锁实现  
    单向链表  
-   Node<E> head last 存放首位节点  
+   Node<E> head last 存放首尾节点  
    AtomicInteger count 记录队列元素个数  
    ReentrantLock takeLock putLock 控制出队入队的原子性  
    Condition notEmpty notFull 条件变量，内部存在一个条件队列存放入队出队被阻塞的线程
-   
-    1. offer(E e)  
-        向队列尾部插入一个元素，成功则返回true，如果队列已满丢弃其当前元素返回false  
-       如果e为null抛出空指针异常 非阻塞的  
-       
 
+    1. offer(E e)  
+       向队列尾部插入一个元素，成功则返回true，如果队列已满丢弃其当前元素返回false
+        1. 如果e为null抛出空指针异常 非阻塞的
+        2. 如果当前队列满，丢弃当前元素，返回false
+        3. 构造新节点，获取putLock独占锁
+        4. 如果队列不满则入队，并递增元素计数
+        5. 唤醒notFull队列里因为调用了notFull的await操作而被阻塞的一个线程(put或offer时队列满的时候)， 现在队列有空闲，所有可以提前唤醒一个入队线程
+        6. 在finally里释放putLock锁
+        7. 如果目前队列中至少有一个元素则signalNotEmpty，激活notEmpty队列中因为调用notEmpty的await方法而被阻塞的线程(调用take方法并且队列为空)
+           (获取条件变量的方法前要获取对应的锁)
+           ```
+                putLock.lock() -> notFull.signal() -> putLock.unlock()
+                takeLock.lock() -> notEmpty.signal() -> takeLock.unlock()
+           ```
+       offer方法通过使用putLock锁保证在队列尾部新增元素操作的原子性
+
+    2. put(E e)
+       向队列尾部插入元素，如果队列有空闲直接插入返回，如果队列已满则阻塞当前线程，直至成功插入  
+       如果在队列阻塞期间被其他线程设置了中断标志，则抛出异常返回(e不能为null)
+
+    3. poll()
+       从队列头获取并移除一个元素，如果队列为空返回null，不阻塞
+        1. 如果队列为空，返回null
+        2. 获取takeLock独占锁(其他线程在调用poll或take时会被阻塞挂起)
+        3. 如果队列不为空执行出队操作，递减计数器
+        4. 如果当前队列移除队首元素后不为空，则激活因为调用take方法而被阻塞到notEmpty队列里的一个线程
+        5. 在finally中释放takeLock锁
+        6. 如果移除元素前队列是满的，移除一个之后至少有一个空闲位置，调用signalNotFull激活因为调用put方法而被 阻塞到notFull的条件队列里的线程
+
+    4. take()  
+       获取当前队列的头部元素并移除 如果队列为空则阻塞纸质队列不为空返回返回，如果在阻塞时其他线程设置了中断，该线程抛出异常返回
+
+    5. peek()
+       获取队列的头部元素但不移除它，队列为空返回null 不阻塞
+
+    6. remove()
+       删除队列里的指定元素 有则删除返回true，否则返回false  
+       需要同时获取takeLock和putLock(需要遍历队列查找指定元素，会在阻塞其他入队出队的线程)，获取锁和释放锁的顺序时相反的
+
+    7. size()  
+       获取当前元素个数
+
+3. ArrayBlockingQueue  
+   采用有界数组实现阻塞队列，构造函数必须指定队列容量 默认非公平锁  
+   Object[] item 存放元素  
+   putIndex 入队元素下标  
+   takeIndex 出队元素下标   
+   count 统计队列元素数量  
+   ReentrantLock lock 保证出队入队的原子性，同一时刻只能有一个线程进行入队或出队操作  
+   Condition notEmpty notFull 进行出队入队同步
+
+    1. offer(E e)
+    2. put(E e)
+    3. poll()
+    4. take()
+    5. peek()
+    6. size() 精确值 (获取锁后访问的变量都是从主内存获取的，这保证了变量的内存可见性)
+
+4. PriorityBlockingQueue   
+   带优先级的无界阻塞队列，每次出队返回优先级最高或最低的元素 平衡二叉树堆实现  
+   遍历元素不保证有序，默认使用对象的compareTo进行比较
 
 ## 线程池原理
 
