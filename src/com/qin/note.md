@@ -461,7 +461,41 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
 
 4. PriorityBlockingQueue   
    带优先级的无界阻塞队列，每次出队返回优先级最高或最低的元素 平衡二叉树堆实现  
-   遍历元素不保证有序，默认使用对象的compareTo进行比较
+   遍历元素不保证有序，默认使用对象的compareTo进行比较  
+   Object[] queue 数组存放元素  
+   size 存放元素个数  
+   volatile int allocationSpinLock 自旋锁，使用CAS操作保证同一时刻只能有一个线程可以扩容队列  
+   notEmpty 实现take方法阻塞模式(没有notFull，因为put操作是非阻塞的不会被await，无界队列)  
+   默认容量11 默认比较器null(compareTo)
+
+    1. offer(E e)
+       向队列中插入一个元素，无界队列所以一直返回true  
+       如果当前元素个数 >= 队列容量 扩容(会释放锁，使用CAS控制只有一个线程可以进行扩容)  
+       其他线程会yield让出CPU，让扩容线程成功后重新获取锁
+
+    2. poll()
+       获取队列内堆的根节点元素，如果队列为空返回null
+
+
+5. DelayQueue  
+   无界阻塞延迟队列，每个元素都有过期时间，获取元素时，只有过期元素才会出队，队头元素时最快要过期的元素  
+   使用PriorityQueue存放数据，使用ReentrantLock实现线程同步  
+   实现Delay接口(获取当前元素还剩下多少时间就过期)  
+   Condition available 实现线程同步  
+   Thread leader 一个线程调用take方法会变成leader线程，调用条件变量available.awaitNanos(delay)等待delay时间， 其他线程调用available.await()
+   无限等待。leader线程延迟时间过期以后，会退出take方法，调用available.signal()
+   唤醒一个follower线程，被唤醒的线程成为新的leader线程(leader线程用来说明是否有其他线程在执行take)  
+   减少线程等待
+
+    1. offer(E e)
+       插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)  
+       插入之后还要判断新插入的是不是最先过期的
+
+    2. take()
+       获取并移除队列里过期的元素，没有则等待
+
+    3. poll()
+       获取并移除队头过期元素，没有过期元素返回null
 
 ## 线程池原理
 
