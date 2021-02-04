@@ -302,6 +302,31 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
    该工具类用来挂起和唤醒线程，是创建锁和其他同步类的基础  
    LockSupport类与每个使用它的线程都会关联一个许可证，默认情况下调用LockSupport类的方法的线程是不持有许可证的，使用Unsafe类实现
 
+    1. park()  
+       如果调用park方法的线程已经拿到了与LockSupport关联的许可证，调用park()方法会马上返回，否则调用线程会被禁止参与线程的调度(阻塞挂起)  
+       其他线程调用unpark(thread)方法并将当前线程作为参数时，调用park方法被阻塞的线程会返回  
+       如果其他线程调用了阻塞线程的interrupt()方法(设置了中断标志会被虚假唤醒)，阻塞线程也会返回  
+       (调用park方法而被阻塞的线程被其他线程中断而返回时不会抛出InterruptedException异常)
+
+    2. unpark(thread)
+       如果线程调用unpark方法，如果参数thread线程没有持有thread与LockSupport类关联的许可证，则让thread线程持有  
+       如果thread之前因为调用park而被挂起，则调用unpark后，该线程会被唤醒  
+       如果thread之前没有调用park，则调用unpark方法后，在调用park，会立刻返回
+
+    3. parkNanos(long nanos)  
+       如果调用park方法的线程拿到了与LockSupport关联的许可证，调用改方法后立刻返回  
+       如果没有拿到许可证，调用线程会被挂起nanos时间和自动返回
+
+    4. park(Object blocker)
+       当前线程没有持有许可证调用park方法被阻塞挂起，这个blocker对象会被记录到线程内部  
+       Thread中的 volatile Object parkBlocker 存放park方法传递的blocker(将blocker变量存放到了调用park方法的线程的成员变量里面)
+
+    5. parkNanos(Object blocker, long nanos)
+       多了个超时时间
+    6. parkUntil(Object blocker, long deadline)
+       指定一个时间点
+
+
 2. AbstractQueuedSynchronizer 抽象同步队列  
    FIFO双向队列，通过节点(Node) head 和tail 记录队首和队尾  
    thread变量用来存放进入AQS队列里的线程； shared用来标记该线程是获取共享资源时被阻塞挂起后放入AQS队列的； exclusive用来标记线程时获取独占资源时被挂起后放入AQS队列的；
