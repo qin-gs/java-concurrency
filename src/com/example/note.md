@@ -67,13 +67,13 @@ java中 main函数所在的线程是主线程
 
 2. wait(long timeout)函数
 
-   如果没有在给定时间timeout内调用notify()或者notify()唤醒，会因超时而返回
+   如果没有在给定时间 timeout 内调用 notify() 或者 notify() 唤醒，会因超时而返回
 
-   wait(0) == wait() 传入负数 -> 抛出IllegalArgumentException
+   wait(0) == wait() 传入负数 -> 抛出 IllegalArgumentException
 
-3. wait(long timeout, int nanos)函数
+3. wait(long timeout, int nanos) 函数
 
-   当nanos>0时, timeout递增(每次while循环都会导致等待时间增加)
+   当 nanos>0 时, timeout 递增(每次 while 循环都会导致等待时间增加)
 
    ```
     synchronized (obj) {
@@ -86,26 +86,52 @@ java中 main函数所在的线程是主线程
     }
    ```
 
-4. notify()函数 当一个线程调用共享对象的notify()方法后，会唤醒一个在该共享变量上调用wait()方法后被挂起的线程
+4. notify() 函数 
 
-   一个共享变量上可能会有多个线程在等待，具体唤醒哪一个是随机的
+   当一个线程调用共享对象的 notify() 方法后，会唤醒一个在该共享变量上调用 wait() 方法后被挂起的线程
 
-   被唤醒的线程要去和其他线程一起竞争该锁
+   一个共享变量上可能会有多个线程在等待，具体唤醒哪一个是随机的，被唤醒的线程要去和其他线程一起竞争该锁 (只有当前线程获取到共享变量的监视器锁后才能调用改方法，否则会抛出 IllegalMonitorStateException 异常)
 
-5. notifyAll()函数 会唤醒在该共享变量上由于调用wait()函数而被挂起的线程
+5. notifyAll() 函数 
 
-### 1.4 等待线程执行终止的join()方法 Thread
+    会唤醒在该共享变量上由于调用 wait() 函数而被挂起的线程
+
+​	
+
+### 1.4 等待线程执行终止的join()方法 (Thread)
+
+
+
+主线程会在调用 join 方法后被阻塞，等待线程完成后继续执行
+
+线程A调用线程B的 join 方法后会被阻塞，其他线程调用线程A的 interrupt 方法中断线程A时，线程A会抛出 InterruptedException 异常然后返回
 
 void Thread.join()
-threadOne.join() // 主线程阻塞，等待threadOne返回
+threadOne.join() 
 
-### 1.5 线程睡眠sleep() Thread
+
+
+### 1.5 线程睡眠sleep() (Thread)
+
+
 
 让出执行权，不释放该线程拥有的监视器资源
 
-### 1.6 CPU让出执行权 yield() Thread
+当一个线程处于睡眠状态时，如果另外的线程中断了它，会在调用 sleep 方法处抛出异常
 
-时间片还有，不想用了，主动进入就绪状态 **其他都是阻塞**
+public static native void sleep(long millis) 如果 millis 传入负数，会抛出 InterruptedException 异常
+
+
+
+### 1.6 CPU让出执行权 yield() (Thread)
+
+
+
+时间片还有，不想用了，主动进入**就绪**状态 
+
+sleep 是阻塞
+
+
 
 ### 1.7 线程中断
 
