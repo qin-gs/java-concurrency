@@ -6,7 +6,8 @@ public class ThreadLocalTest {
 
     static void print(String str) {
         System.out.println(str + ": " + localVariable.get());
-        // localVariable.remove();
+        // 移除线程本地内存中的变量
+        localVariable.remove();
     }
 
     public static void main(String[] args) {

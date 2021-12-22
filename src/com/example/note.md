@@ -2,6 +2,8 @@
 
 ## 1.并发编程线程基础
 
+
+
 ### 1.1 进程与线程
 
 线程状态：运行 阻塞 就绪
@@ -13,6 +15,8 @@ cpu资源分配给线程
 java中 main函数所在的线程是主线程
 
 一个进程可以有多个线程，多个线程之间共享 堆 和 方法区，每个线程有自己独立的 程序计数器 和 栈
+
+
 
 ### 1.2 线程创建与运行
 
@@ -32,7 +36,11 @@ java中 main函数所在的线程是主线程
 3. FutureTask
     * ft.get() 获取返回值
 
+
+
 ### 1.3 线程通知与等待 (Object)
+
+
 
 1. wait() 函数
     * 当一个线程调用一个共享变量的 wait() 方法时，该调用线程会被阻塞挂起，直到：
@@ -135,16 +143,31 @@ sleep 是阻塞
 
 ### 1.7 线程中断
 
-1. void interrupt() 设置线程的中断标志位true并立刻返回  
-   如果线程正在因为wait, join, sleep而被阻塞，则抛出InterruptedException异常
-2. boolean isInterrupted() 检测当前线程是否被中断
-3. boolean interrupted() 检测当前线程是否被中断，并清除中断标志
+
+
+1. void interrupt() 
+
+   设置线程的中断标志位为 true 并立刻返回，线程并实际并没有被中断
+
+   如果线程正在因为 wait, join, sleep 而被阻塞，则抛出 InterruptedException 异常
+
+2. boolean isInterrupted() 检测调用改方法的线程是否被中断，不清除中断标志
+
+3. boolean interrupted() 检测**当前**线程是否被中断，并清除中断标志
+
+
 
 ### 1.8 线程上下文切换
 
+
+
 时机：当前线程的CPU时间片用完处于就绪状态，当前线程被其他线程中断
 
+
+
 ### 1.9 线程死锁
+
+
 
 1. 同时符合四个条件
     1. 互斥(某项资源同一时刻只能被一个线程使用)
@@ -155,45 +178,102 @@ sleep 是阻塞
     1. 破环请求和保持 (一次性获取所有资源)
     2. 破环循环等待 (规定获取资源顺序)
 
+
+
 ### 1.10 守护线程 用户线程
 
-thread.setDaemon(true)  
-所有的用户线程结束后，结束JVM进程
+
+
+thread.setDaemon(true)
+
+所有的用户线程结束后，不管有没有守护检查，都会结束JVM进程
+
+main 线程运行结束之后，虚拟机会自动启动一个叫做 DestroyJavaVM 的线程，该线程等待所有用户线程结束后终止虚拟机进程
+
+
 
 ### 1.11 ThreadLocal
 
+
+
 创建一个ThreadLocal变量，访问该变量的每个线程都会有一个该变量的本地副本；操作该变量时，操作的是 自己本地内存里的变量，避免线程安全问题。
+
+多个线程操作该变量时，会复制一份保存到自己的本地内存
 
 #### 实现原理
 
 Thread 里面有两个 ThreadLocalMap(threadLocals, inheritableThreadLocals)
-threadLocal类型的本地变量存放在具体的线程内存空间中  
-每个线程的本地变量不存放在ThreadLocal实例里面，而是存放在调用线程的threadLocals变量里面  
+
+ThreadLocal 是一个工具壳，通过 set 方法将变量放入具体线程的内存空间中，通过 get 方法将放在具体线程 threadLocals 变量中的值拿出来
+
+threadLocal 类型的本地变量存放在具体的线程内存空间中
+
+每个线程的本地变量不存放在 ThreadLocal 实例里面，而是存放在调用线程的 threadLocals 变量里面
+
+ThreadLocal 不支持继承性
+
 子线程访问父线程的变量
 
-```
+```java
+// 重写了三个方法 (使用 inheritableThreadLocals 替换了 threadLocals)
 ThreadLocal<String> local = new InheritableThreadLocal<>();
+
+// 在 Thread 类的构造函数中，会判断 parent.inheritableThreadLocals 是否为 null
+// 如果不为 null，就会初始化子线程的 inheritableThreadLocals
+// 使用父线程的 inheritableThreadLocals 作为构造函数参数创建一个新的 ThreadLocalMap 变量，赋值给子线程的 inheritableThreadLocals 变量
+// 构造函数中把父线程的 inheritableThreadLocals 成员变量复制到新的 ThreadLocalMap 中(复制过程中调用了 InheritableThreadLocal 中重写的方法)
 ```
 
+
+
 ## 2. 并发编程
+
+
 
 ### 2.1 多线程并发编程
 
 * 并发：一段时间内多个任务同时执行
+
 * 并行：同一时刻多个任务同时执行
-* 线程安全问题：多个线程同时读写一个共享资源且没有任何同步措施时，导致出现脏数据或其他不可预见的问题。
+
+* 线程安全问题：多个线程同时读写一个共享资源且没有任何同步措施时，导致出现脏数据或其他不可预见的问题
+
 * Java内存模型：所有的变量都存放在主内存中，当线程使用变量时，会把主内存中的变量复制到自己的工作内存，线程读写 变量时操作的是自己工作内存中的变量，处理完后同步回主内存
+
 * 内存可见性问题 (CPU寄存器 -> 缓存 -> 主内存)
-* synchronized 监视器锁 (阻塞线程 需要从用户态 切换到 内核态)
+
+* synchronized 监视器锁 (阻塞线程 造成**线程上下文切换** 需要从用户态 切换到 内核态)
     * 获取锁后：清空本地内存变量，全部从主内存中获取
     * 释放锁前：将本地内存的修改同步回主内存
+    
 * volatile 使用场景 (提供可见性，不保证原子性)
+
+    使用场景
+
     * 写入值不依赖当前值
     * 读写变量时没有加锁
 
+
+
 ### 2.7 java中的原子操作
 
-set get方法都要synchronized，来保证可见性
+
+
+原子性操作：一系列操作要么全执行，要么全不执行
+
+set get 方法都要 synchronized，来保证内存 可见性
+
+
+
+### 2.8 CAS 操作
+
+
+
+compare and swap ，jdk 通过硬件保证原子性 (Unsafe 保证提供多个方法)
+
+ABA 问题 (AtomicStampedReference 使用时间戳避免该问题)
+
+
 
 ### 2.9 Unsafe类
 
