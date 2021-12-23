@@ -1,5 +1,10 @@
 package com.example.chapter02;
 
+/**
+ * volatile 可以保证
+ * 写之前的操作不会被编译器重排序到写之后
+ * 读之后的操作不会被重排序到读之前
+ */
 public class TestReorder {
 
     public static int num = 0;

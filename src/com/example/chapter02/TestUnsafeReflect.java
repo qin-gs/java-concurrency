@@ -4,6 +4,9 @@ import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
 
+/**
+ * 通过反射获取 Unsafe 类
+ */
 public class TestUnsafeReflect {
 
     static final Unsafe unsafe;

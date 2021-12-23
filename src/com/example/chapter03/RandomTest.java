@@ -3,6 +3,9 @@ package com.example.chapter03;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
+/**
+ * Random 和 ThreadLocalRandom 使用
+ */
 public class RandomTest {
     public static void main(String[] args) {
         Random random = new Random();
