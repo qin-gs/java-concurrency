@@ -363,11 +363,17 @@ java内存模型运行编译器和处理器对指令重排序以提高运行性�
 
 `ThreadLocalRandom`中没有存放具体的种子，具体的种子存放在具体的调用线程的`threadLocalRandomSeed`里面`ThreadLocalRandom.current()` 负责初始化调用线程里的`threadLocalRandomSeed`变量，静态方法，多个线程返回同一个对象
 
-**ThreadLocalRandom使用ThreadLocal的原理，让每一个线程持有一个本地的种子变量，该种子变量只有在使用随机数时才会被初始化， 多线程下计算新种子时根据自己线程内维护的种子变量进行更新，避免竞争**
+ThreadLocalRandom使用ThreadLocal的原理，让每一个线程持有一个**本地的种子**变量，该种子变量只有在使用随机数时才会被初始化， 多线程下计算新种子时根据自己线程内维护的种子变量进行更新，避免竞争
 
-## 4. 原子操作类原理剖析(CAS)
+
+
+## 4. 原子操作类原理剖析 (JUC, CAS)
+
+
 
 ### 4.1 原子变量操作类
+
+
 
 ```
 AtomicInteger, AtomicLong, AtomicBoolean
@@ -379,43 +385,86 @@ getAndDecrement() -> getAndAddLong(this, valueOffset, -1L);
 
 valueOffset = unsafe.objectFieldOffset(AtomicLong.class.getDeclaredField("value"));
 // value变量在AtomicLong中的偏移量 (value存放具体计数的变量 volatile(保证内存可见性))
-
 ```
+
+
 
 ### 4.2 LongAdder(原子性递增或递减类)
 
-AtomicLong的瓶颈为 多线程竞争同一个原子变量  
-LongAddr 内部维护多个Cell，争夺单个变量操作的线程量就会减少  
-多个线程争夺同一个Cell原子变量失败了，并不是在当前Cell变量上一直自旋CAS重试，而是尝试在其他Cell变量上进行CAS尝试，
-这个改变郑家了当前线程重试CAS成功的可能性。最后在获取LongAdder当前值时，把所有Cell变量的value值累加后加上base返回
+**为了解决并发下多线程对一个变量 cas 争夺失败后进行自旋造成的降低并发性能问题**。
 
-Cell 原子性更新数组 2^n 是一个AtomicLong的改进，解决伪共享的问题
+AtomicLong的瓶颈为 多线程竞争同一个原子变量
 
-使用@Content修饰，放置多个元素共享一个缓存行，提高性能  
-![LongAdderUML图](imgs/LongAdderUML.png)
+LongAddr 内部维护一个原子性更新的 Cell **数组**(默认为null，惰性加载) 和 一个基值变量(base)
 
-Striped64
+刚开始数组为null并且并发较少时，对 base 变量进行操作。保证 cell 数组的大小为 2^n，Cell 是 AtomicLong的一个改进，用来减少缓存争用(伪共享问题)，使用 @sun.misc.Content 修饰，防止数组中的多个元素共享一个缓存行，提高性能
 
-1. base: long 真实值为(base + Cell[i ... n])
-2. cellsBusy: volatile int 实现自旋锁(0, 1) 创建Cell元素，扩容Cell数组或初始化Cell数组时， 用CAS操作保证同时只有一个线程可以进行其中之一操作
-3. cells: volatile Cell[]
+多个线程争夺同一个Cell原子变量失败了，并不是在当前Cell变量上一直自旋CAS重试，而是尝试在其他Cell变量上进行CAS尝试，这个改变增加了当前线程重试CAS成功的可能性。最后在获取LongAdder当前值时，把所有Cell变量的value值**累加后加上base返回**
 
-1. LongAdder的结构是怎样的? 包装一个`volatile long value`
-2. 当前线程应该出问Cell数组里面的哪一个Cell元素? 当前线程应该访问cells 数组的哪一个Cell元素是通过getProbe() & m 进行计算的， 其中m 是当前cells 数组元素个数－ 1 , getProbe()
-   则用于获取当前线程中变量threadLocalRandomProbe 的值，这个值一开始为0 ， 后面其进行初始化。
-3. 如何初始化Cell数组? cellsBusy 是一个标示，为0说明当前cells 数组没有在被初始化或者扩容，也没有在新建Cell元素， 为1则说明cells数组在被初始化或者扩容，或者当前在创建新的Cell
-   元素、通过CAS操作来进行0或1状态的切换
-4. Cell数组如何扩容? 当前cells的元素个数小于当前机器CPU 个数并且当前多个线程访问了cells中同一个元素 从而导致冲突使其中一个线程CAS 失败时才会进行扩容操作,将容量扩充为之前的2倍
-5. 线程访问分配的Cell 元素有冲突后如何处理? 对CAS 失败的线程重新计算当前线程的随机值threadLocalRandomProbe,以减少下次访问cells 元素时的冲突机会
-6. 如何保证线程操作被分配的Cell元素的原子性? cas函数通过CAS 操作，保证了当前线程更新时被分配的Cell元素中value值的原子性。 使用@Contented避免伪共享
+![AtomicLong竞争一个原子变量](./imgs/AtomicLong竞争一个原子变量.png)
+
+![LongAddr多个线程竞争多个原子变量](./imgs/LongAddr多个线程竞争多个原子变量.png)
+
+
+
+1. LongAdder的结构是怎样的? 
+
+   包装一个`volatile long value`
+
+   ![LongAdderUML](./imgs/LongAdderUML.png)
+
+   Striped64 类
+
+   1. base: long 真实值为(base + cells[i ... n])
+   2. cellsBusy: volatile int 实现自旋锁(只有0, 1两个状态) 创建Cell元素，当**扩容**Cell数组或**初始化**Cell数组时， 用CAS操作保证同时只有一个线程可以进行其中之一操作
+   3. cells: volatile Cell[]
+
+2. 当前线程应该出问Cell数组里面的哪一个Cell元素
+
+    当前线程应该访问cells 数组的哪一个Cell元素是通过 `getProbe() & m` 进行计算的， 其中m 是当前cells 数组元素个数－ 1 , getProbe() 则用于获取当前线程中变量 threadLocalRandomProbe 的值，这个值一开始为0 ， 后面其进行初始化。
+
+3. 如何初始化Cell数组?
+
+    cellsBusy 是一个标示，为0说明当前cells 数组没有在被初始化或者扩容，也没有在新建Cell元素， 为1则说明cells数组在被初始化或者扩容，或者当前在创建新的Cell元素、通过CAS操作来进行0或1状态的切换
+
+   ```java
+   Cell[] rs = new Cell[2]; // 初始化成长度为 2 的数组
+   rs[h & 1] = new Cell(x);
+   ```
+
+4. Cell数组如何扩容? 
+
+   - cells的元素个数小于当前机器CPU 个数
+
+   - 多个线程访问了cells中同一个元素，从而导致冲突使其中一个线程CAS 失败
+
+   两个条件同时满足才会进行扩容操作，将容量扩充为之前的2倍，将之前的元素复制到扩容后的数组
+
+5. 线程访问分配的Cell 元素有冲突后如何处理?
+
+   对CAS 失败的线程**重新计算**当前线程的随机值 threadLocalRandomProbe，以减少下次访问cells 元素时的冲突机会
+
+6. 如何保证线程操作被分配的Cell元素的原子性?
+
+   cas函数通过**CAS 操作**，保证了当前线程更新时被分配的Cell元素中value值的原子性。 使用@Contented避免伪共享
+
+
 
 ### 4.3 LongAccumulator
 
-LongAdder是LongAccumulator的一个特例  
-LongAdder 只能提高默认的0值  
+
+
+LongAdder 是 LongAccumulator 的一个特例
+
+LongAdder 只能提高默认的0值
+
 LongAccumulator 可以提供非0的初始值，指定累加规则
 
-## Java并发包中的List源码剖析(CopyOnWriteArrayList)
+
+
+## 5. Java并发包中的List源码剖析(CopyOnWriteArrayList)
+
+
 
 线程安全：进行的修改哦操作都是在底层的一个复制数组(快照)上进行的  
 有一个array数组存放具体的元素，ReentrantLock(独占锁)保证同时只有一个线程对array进行修改
