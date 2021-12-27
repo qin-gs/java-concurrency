@@ -2,6 +2,9 @@ package com.example.chapter06;
 
 import java.util.concurrent.locks.LockSupport;
 
+/**
+ * LockSupport 工具类用来挂起和唤醒线程
+ */
 public class LockSupportTest {
     public static void main(String[] args) throws InterruptedException {
         test5();
@@ -23,6 +26,7 @@ public class LockSupportTest {
     public static void test3() throws InterruptedException {
         Thread thread = new Thread(() -> {
             System.out.println("child thread begin park");
+            // 调用 park 方法，挂起自己
             LockSupport.park(); // 获取许可证之后就可以返回了
             System.out.println("child thread unpark");
         });
@@ -30,7 +34,8 @@ public class LockSupportTest {
         Thread.sleep(1000);
 
         System.out.println("main thread begin unpark");
-        LockSupport.unpark(thread); // 主线程调用unpark方法，子线程作为参数，让子线程获取许可证
+        // 主线程调用 unpark 方法，子线程作为参数，让子线程获取许可证，然后方法才能返回
+        LockSupport.unpark(thread);
     }
 
     public static void test4() throws InterruptedException {
@@ -54,6 +59,7 @@ public class LockSupportTest {
     }
 
     private void testPark() {
-        LockSupport.park();
+        // 带有 blocker 参数的 park 方法会被记录到线程内部，编译诊断线程被阻塞的原因
+        LockSupport.park(this);
     }
 }

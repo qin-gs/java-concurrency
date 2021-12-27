@@ -466,28 +466,46 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
 
 
 
-线程安全：进行的修改哦操作都是在底层的一个复制数组(快照)上进行的  
+### 5.1 介绍
+
+
+
+线程安全：进行的修改操作都是在底层的一个复制数组(快照)上进行的
+
 有一个array数组存放具体的元素，ReentrantLock(独占锁)保证同时只有一个线程对array进行修改
+
+jdk11 之后不使用 ReentrantLock 了，改为 synchronized
+
+```
+The lock protecting all mutators.  (We have a mild preference for builtin monitors over ReentrantLock when either will do.)
+```
+
+
 
 ### 5.2 代码解析
 
-1. 初始化  
-   无参构造函数：创建大小为0的Object数组作为array的初始值  
-   参数为 E[]: 创造一个list，将传入的数组元素复制进去  
+1. 初始化
+
+   无参构造函数：创建大小为0的Object数组作为array的初始值
+
+   参数为 E[]: 创造一个list，将传入的数组元素复制进去
+
    参数为 Collection 将传入集合的元素复制进去
 
 
 2. 添加元素 `add(E e)`
     1. 获取独占锁 `ReentrantLock`
     2. 获取存放元素的`array`
-    3. 复制array到另一个新创建的数组(新数组的长度为原来的+1 因此是无界的)，添加新元素e到新数组
-    4. 使用新数组替换原来的
+    3. 复制array到另一个**新创建**的数组(新数组的长度为原来的+1 因此是无界的)，添加新元素e到新数组
+    4. 使用新数组**替换**原来的
     5. 释放独占锁
 
 3. 获取指定位置的元素`get(int index)`
     1. 获取array数组
     2. 通过下标访问指定位置的元素
 
+    如果获取数组之后，其他线程进行了修改，会有**弱一致性**问题
+    
 4. 修改指定位置的元素`set(int index, E element)`
     1. 获取独占锁
     2. 获取存放元素的array
@@ -506,119 +524,165 @@ LongAccumulator 可以提供非0的初始值，指定累加规则
     5. 使用新数组代替原来的
     6. 释放独占锁
 
-6. 弱一致性的迭代器  
+6. 弱一致性的迭代器
+   
    COWIterator 存放数组的快照`snapshot`, 获取到给定的迭代器后，其他线程对该list的修改不可见，操作的是两个不同的数组
 
-## 6.java并发包中的锁原理
-
-1. LockSupport工具类(rt.jar)  
-   该工具类用来挂起和唤醒线程，是创建锁和其他同步类的基础  
-   LockSupport类与每个使用它的线程都会关联一个许可证，默认情况下调用LockSupport类的方法的线程是不持有许可证的，使用Unsafe类实现
-
-    1. park()  
-       如果调用park方法的线程已经拿到了与LockSupport关联的许可证，调用park()方法会马上返回，否则调用线程会被禁止参与线程的调度(阻塞挂起)  
-       其他线程调用unpark(thread)方法并将当前线程作为参数时，调用park方法被阻塞的线程会返回  
-       如果其他线程调用了阻塞线程的interrupt()方法(设置了中断标志会被虚假唤醒)，阻塞线程也会返回  
-       (调用park方法而被阻塞的线程被其他线程中断而返回时不会抛出InterruptedException异常)
-
-    2. unpark(thread)
-       如果线程调用unpark方法，如果参数thread线程没有持有thread与LockSupport类关联的许可证，则让thread线程持有  
-       如果thread之前因为调用park而被挂起，则调用unpark后，该线程会被唤醒  
-       如果thread之前没有调用park，则调用unpark方法后，在调用park，会立刻返回
-
-    3. parkNanos(long nanos)  
-       如果调用park方法的线程拿到了与LockSupport关联的许可证，调用改方法后立刻返回  
-       如果没有拿到许可证，调用线程会被挂起nanos时间和自动返回
-
-    4. park(Object blocker)
-       当前线程没有持有许可证调用park方法被阻塞挂起，这个blocker对象会被记录到线程内部  
-       Thread中的 volatile Object parkBlocker 存放park方法传递的blocker(将blocker变量存放到了调用park方法的线程的成员变量里面)
-
-    5. parkNanos(Object blocker, long nanos)
-       多了个超时时间
-    6. parkUntil(Object blocker, long deadline)
-       指定一个时间点
 
 
-2. AbstractQueuedSynchronizer 抽象同步队列  
-   FIFO双向队列，通过节点(Node) head 和tail 记录队首和队尾  
-   thread变量用来存放进入AQS队列里的线程； shared用来标记该线程是获取共享资源时被阻塞挂起后放入AQS队列的； exclusive用来标记线程时获取独占资源时被挂起后放入AQS队列的；
-   waitStatus记录当前线程等待状态
-    * cancelled 线程被取消
-    * signal 线程需要被唤醒
-    * condition 线程在条件队列里等待
-    * propagate 释放共享资源时需要通知其他节点 prev记录当前节点的前驱节点； next记录当前节点的后继节点
-
-   维护一个单一的状态信息：state
-    * ReentrantLock 当前线程获取锁的可重入次数
-    * ReentrantReadWriteLock 高16位表示读状态(获取读锁的次数)，低16为表示获取到写锁线程的可重入次数
-    * Semaphore 当前可以信号个数
-    * CountDownLatch 当前计数器的值
-
-   ConditionObject内部类(结合锁实现线程同步)
-    * 条件变量(每个条件表里对应一个条件队列(单向链表队列firstWaiter, lastWaiter)，用来存放条件变量的await方法后被阻塞的线程)
-
-   线程同步的关键是对状态值state进行操作。根据state是否属于一个线程，操作方式分为独占式 和 共享式
-    * 独占式 (acquire, acquireInterruptibly, release)
-    * 共享式 (acquireShared acquireSharedInterruptibly releaseShared)
-
-   使用独占方式获取的资源是与其他线程绑定的(ReentrantLock)  
-   共享方式获取的资源是与具体线程不相关的(Semaphore)
+## 6. java并发包中的锁原理
 
 
-3. 独占锁ReentrantLock原理
 
-   ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数
+### 6.1 LockSupport工具类(rt.jar)
 
-    1. 获取锁 lock()  
-       非公平锁
-        * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
-          设置AQS的状态值为1，直接返回
-        * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
-        * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起  
-          公平锁
-        * 会判断是否有前驱节点
 
-    2. lockInterruptibly()  
-       相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
 
-    3. tryLock() 非公平  
-       尝试获取锁，如果当前锁没有被其他线程持有，则当前线程获取该锁并返回true，该方法不会引起当前线程阻塞
+该工具类用来**挂起和唤醒线程**，是创建锁和其他同步类的基础
 
+LockSupport类与每个使用它的线程都会关联一个许可证，默认情况下调用LockSupport类的方法的线程是不持有许可证的，使用Unsafe类实现
+
+ 1. park()
+
+    如果调用park方法的线程已经拿到了与LockSupport关联的许可证，调用park()方法会马上返回，否则调用线程会被禁止参与线程的调度(阻塞挂起)
+
+    **其他线程**调用unpark(thread)方法并将**当前线程作为参数**时，调用park方法被阻塞的线程会返回
+
+    如果其他线程调用了阻塞线程的interrupt()方法(设置了中断标志会被虚假唤醒)，阻塞线程也会返回
+
+    (调用park方法而被阻塞的线程被其他线程中断而返回时**不会**抛出InterruptedException异常)
+
+ 2. unpark(thread)
+
+    如果线程调用unpark方法，如果参数thread线程没有持有thread与LockSupport类关联的许可证，则**让thread线程持有**许可证
+
+    - 如果thread之前因为调用park而被挂起，则调用unpark后，该线程会被唤醒
+
+    - 如果thread之前没有调用park，则调用unpark方法后，在调用park，会立刻返回
+
+ 3. parkNanos(long nanos)
+
+    - 如果调用park方法的线程拿到了与LockSupport关联的许可证，调用改方法后立刻返回
+
+    - 如果没有拿到许可证，调用线程会被挂起nanos时间和自动返回
+
+ 4. park(Object blocker)
+
+    当前线程没有持有许可证调用park方法被阻塞挂起，这个blocker对象会被记录到**线程内部** 
+
+    Thread中的 `volatile Object parkBlocker` 存放park方法传递的blocker(将blocker变量存放到了调用park方法的线程的成员变量里面)
+
+ 5. parkNanos(Object blocker, long nanos)
+
+    多了个超时时间
+
+ 6. parkUntil(Object blocker, long deadline)
+
+    指定一个时间点(从1970年之后)
+
+
+
+### 6.2 AbstractQueuedSynchronizer 抽象同步队列
+
+
+
+FIFO双向队列，通过节点(Node) head 和tail 记录队首和队尾
+
+- thread: 用来存放进入AQS队列里的线程； 
+
+- shared: 标记该线程是获取**共享**资源时被阻塞挂起后放入AQS队列的； 
+
+- exclusive: 用来标记线程时获取**独占**资源时被挂起后放入AQS队列的；
+
+- waitStatus: 记录当前线程**等待状态**
+   - cancelled 线程被取消
+   - signal 线程需要被唤醒
+   - condition 线程在条件队列里等待
+   - propagate 释放共享资源时需要通知其他节点 
+ - prev: 记录当前节点的前驱节点； 
+ - next: 记录当前节点的后继节点
+
+维护一个单一的**状态信息**：state
+ * ReentrantLock 当前线程获取锁的可重入次数
+ * ReentrantReadWriteLock 高16位表示读状态(获取读锁的次数)，低16为表示获取到写锁线程的可重入次数
+ * Semaphore 当前可用信号个数
+ * CountDownLatch 当前计数器的值
+
+ConditionObject 内部类(结合锁**实现线程同步**)
+ * 条件变量(每个条件表里对应一个条件队列(单向链表队列firstWaiter, lastWaiter)，用来存放条件变量的await方法后被阻塞的线程)
+
+线程同步的关键是对状态值state进行操作。根据state是否属于一个线程，操作方式分为独占式 和 共享式
+ * 独占式 (acquire, acquireInterruptibly, release)
+ * 共享式 (acquireShared acquireSharedInterruptibly releaseShared)
+
+使用独占方式获取的资源是与其他线程绑定的(ReentrantLock)  
+共享方式获取的资源是与具体线程不相关的(Semaphore)
+
+
+
+### 6.3 独占锁ReentrantLock原理
+
+
+
+ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数
+
+ 1. 获取锁 lock()  
+    非公平锁
+     * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
+       设置AQS的状态值为1，直接返回
+     * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
+     * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起  
+       公平锁
+     * 会判断是否有前驱节点
+
+ 2. lockInterruptibly()  
+    相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
+
+ 3. tryLock() 非公平  
+    尝试获取锁，如果当前锁没有被其他线程持有，则当前线程获取该锁并返回true，该方法不会引起当前线程阻塞
+
+ 4. tryLock(long timeout, TimeUnit unit)  
+    尝试获取锁，设置了超时时间，规定时间内没有获取到锁，返回false
+
+ 5. unlock()  
+    释放锁
+     * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
+     * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
+
+
+
+### 6.4 ReentrantReadWriteLock原理 读写分离，允许多个线程可以同时获取读锁
+
+
+
+1. 类图  
+   读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 依次表示 读状态 和 写状态(最大可重入次数为65535)  
+   firstReader 记录第一个获取到读锁的线程  
+   firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数  
+   cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数  
+   readHolds (ThreadLocal)存放除去第一个线程外的其他线程获取读锁的可重入次数
+
+2. 写锁(WriteLock)的获取与释放
+    1. lock()  
+       独占锁+可重入锁，某个时刻只能有一个线程获取该锁  
+       判断是否有其他线程获取读锁
+    2. lockInterruptibly() 会对中断进行相应
+    3. tryLock()  
+       尝试获取写锁，非公平策略
     4. tryLock(long timeout, TimeUnit unit)  
-       尝试获取锁，设置了超时时间，规定时间内没有获取到锁，返回false
+       如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false  
+       该方法会相应中断(如果其他线程调用该线程的interrupt()，则抛出异常)
+    5. unLock()  
+       尝试释放锁，判断低16位(将状态值-1)
 
-    5. unlock()  
-       释放锁
-        * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
-        * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
+3. 读锁(ReadLock)的获取与释放
+    1. lock()
 
-4. ReentrantReadWriteLock原理 读写分离，允许多个线程可以同时获取读锁
 
-    1. 类图  
-       读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 依次表示 读状态 和 写状态(最大可重入次数为65535)  
-       firstReader 记录第一个获取到读锁的线程  
-       firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数  
-       cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数  
-       readHolds (ThreadLocal)存放除去第一个线程外的其他线程获取读锁的可重入次数
-
-    2. 写锁(WriteLock)的获取与释放
-        1. lock()  
-           独占锁+可重入锁，某个时刻只能有一个线程获取该锁  
-           判断是否有其他线程获取读锁
-        2. lockInterruptibly() 会对中断进行相应
-        3. tryLock()  
-           尝试获取写锁，非公平策略
-        4. tryLock(long timeout, TimeUnit unit)  
-           如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false  
-           该方法会相应中断(如果其他线程调用该线程的interrupt()，则抛出异常)
-        5. unLock()  
-           尝试释放锁，判断低16位(将状态值-1)
-
-    3. 读锁(ReadLock)的获取与释放
-        1. lock()
 
 ## 7. Java并发包中队列原理
+
+
 
 阻塞队列 锁  
 非阻塞队列 CAS
