@@ -613,10 +613,102 @@ ConditionObject 内部类(结合锁**实现线程同步**)
 
 线程同步的关键是对状态值state进行操作。根据state是否属于一个线程，操作方式分为独占式 和 共享式
  * 独占式 (acquire, acquireInterruptibly, release)
+
  * 共享式 (acquireShared acquireSharedInterruptibly releaseShared)
 
-使用独占方式获取的资源是与其他线程绑定的(ReentrantLock)  
+   state:
+
+   ReentrantLock: 0 空闲， 1 被占用， 
+
+使用独占方式获取的资源是与具体**线程绑定**的(ReentrantLock)
+
 共享方式获取的资源是与具体线程不相关的(Semaphore)
+
+
+
+**独占**方式下，获取释放资源的流程：
+
+获取资源: 
+
+acquire  -> tryAcquire 尝试获取资源 (设置state 的值，成功直接返回，失败将当前线程封装成 Node.EXCLUSIVE 节点插入到 AQS 阻塞队列的尾部，调用 LockSupport#park 方法挂起自己)
+
+```java
+public final void acquire(int arg) {
+    if (!tryAcquire(arg) &&
+        acquireQueued(addWaiter(Node.EXCLUSIVE), arg))
+        selfInterrupt();
+}
+```
+
+释放资源：
+
+release  ->  tryRelease (设置状态变量 state 的值，调用 LockSupport#unpart 激活 AQS 队列里一个被阻塞的线程，被激活的线程 tryAcquire 尝试查看当前状态变量 state 是否满足自己的需求，满足继续向下运行，否则被放入 AQS 挂起)
+
+```java
+public final boolean release(int arg) {
+    if (tryRelease(arg)) {
+        Node h = head;
+        if (h != null && h.waitStatus != 0)
+            unparkSuccessor(h);
+        return true;
+    }
+    return false;
+}
+```
+
+tryAcquire tryRelease 都需要子类自己实现
+
+
+
+**共享**方式下，获取释放锁流程：
+
+获取资源：
+
+acquireShared  -> tryAcquireShared 尝试获取资源 (设置state 的值，成功直接返回，失败将当前线程封装成 Node.SHARED节点插入到 AQS 阻塞队列的尾部，调用 LockSupport#park 方法挂起自己)
+
+释放资源：
+
+releaseShared  ->  tryReleaseShared (设置状态变量 state 的值，调用 LockSupport#unpart 激活 AQS 队列里一个被阻塞的线程，被激活的线程 tryAcquire 尝试查看当前状态变量 state 是否满足自己的需求，满足继续向下运行，否则被放入 AQS 挂起)
+
+tryAcquireShared tryReleaseShared 都需要子类自己实现
+
+
+
+带有 Interruptibly 的方法不响应中断
+
+
+
+**入队操作**
+
+当一个线程获取锁失败后会被转成 Node 节点，使用 enq 方法将该节点插入到 AQS 的阻塞队列
+
+![AQS节点入队操作](./imgs/AQS节点入队操作.png)
+
+
+
+**条件变量(Condition)支持**
+
+notify + wait + synchronized 通过内置锁完成线程间的同步 
+
+signal + await + AQS 通过 AQS 实现的锁实现线程间的同步
+
+调用共享变量的 n/w 方法前需要**先获取变量的内置锁**
+
+```java
+ReentrantLock lock = new ReentrantLock();
+// 使用锁对象创建一个条件变量
+Condition condition = lock.newCondition();
+
+lock.lock(); // 进入被 synchronized 修饰的同步代码块
+lock.await(); // Object#wait()
+lock.signal(); // Object#notify()
+lock.signalAll(); // Object#notifyAll()
+lock.unLock(); // 退出同步代码块
+```
+
+lock.newCondition(); 在 AQS 内部创建了一个 ConditionObject 对象，每个条件变量内部都维护了一个条件队列，用来存放调用条件变量 await 方法时被阻塞的线程
+
+线程调用条件变量的 await 方法时，会创建一个 Node.CONDITION 类型的节点，插入条件队列末尾，然后当前线程释放已获取到的锁，然后被阻塞挂起。如果其他线程尝试获取锁 (lock#lock)，是可以获取到的，如果改线程也调用了 await 方法，也会被放入阻塞队列释放锁。
 
 
 
