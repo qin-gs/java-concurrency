@@ -697,7 +697,7 @@ signal + await + AQS 通过 AQS 实现的锁实现线程间的同步
 ```java
 ReentrantLock lock = new ReentrantLock();
 // 使用锁对象创建一个条件变量
-Condition condition = lock.newCondition();
+Condition condition = lock.newCondition(); // 改方法需要子类去实现
 
 lock.lock(); // 进入被 synchronized 修饰的同步代码块
 lock.await(); // Object#wait()
@@ -710,34 +710,61 @@ lock.newCondition(); 在 AQS 内部创建了一个 ConditionObject 对象，每�
 
 线程调用条件变量的 await 方法时，会创建一个 Node.CONDITION 类型的节点，插入条件队列末尾，然后当前线程释放已获取到的锁，然后被阻塞挂起。如果其他线程尝试获取锁 (lock#lock)，是可以获取到的，如果改线程也调用了 await 方法，也会被放入阻塞队列释放锁。
 
+调用signal 方法时(需要先获取锁)：会把条件队列里队首的一个线程节点移除放入 AQS 的阻塞队列，激活该线程
+
+**流程**
+
+多个线程调用 lock.lock 方法时，只有一个线程获取到锁，其他线程被转换成 Node 放到 lock 锁对应的 AQS 阻塞队列中，并 CAS 自旋尝试获取锁
+
+- 获取到锁之后，如果调用了条件变量的 await 方法，该线程释放锁，转换成 Node 放到条件变量对应的条件队列中
+- 因为调用 lock.lock 方法而被阻塞到 AQS 队列中的某个线程会获取到被释放的锁，如果该线程也调用了条件变量的 await 方法，也会被放入条件变量的条件队列汇总
+- 另一个线程调用的条件变量的 signal 或 signalAll 方法时，会把条件队列里面的一个或全部节点移动到 AQS 的阻塞队列中，等待时机获取锁
+
+![阻塞队列+条件队列](./imgs/阻塞队列+条件队列.png)
+
+**一个锁对应一个 AQS 阻塞队列，对应多个条件变量，每个条件变量有自己的条件队列**
+
+// TODO 自定义一个同步器
 
 
-### 6.3 独占锁ReentrantLock原理
+
+### 6.3 独占锁 ReentrantLock 原理
 
 
 
-ReentrantLock可重入独占锁，默认为非公平锁，state为线程获取该锁的可重入次数
+ReentrantLock可重入独占锁，默认为**非公平**锁，state为线程获取该锁的**可重入次数**(每获取一次值加1)
 
- 1. 获取锁 lock()  
+FairSync, NonFairSync 两个类都继承自 AQS，用来实现公平锁和非公平锁
+
+ 1. 获取锁 lock()
+
     非公平锁
+
      * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
        设置AQS的状态值为1，直接返回
      * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
-     * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起  
-       公平锁
+     * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起
+
+    公平锁
+
      * 会判断是否有前驱节点
 
- 2. lockInterruptibly()  
+ 2. lockInterruptibly()
+
     相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
 
- 3. tryLock() 非公平  
+ 3. tryLock() 非公平
+
     尝试获取锁，如果当前锁没有被其他线程持有，则当前线程获取该锁并返回true，该方法不会引起当前线程阻塞
 
- 4. tryLock(long timeout, TimeUnit unit)  
+ 4. tryLock(long timeout, TimeUnit unit)
+
     尝试获取锁，设置了超时时间，规定时间内没有获取到锁，返回false
 
- 5. unlock()  
+ 5. unlock()
+
     释放锁
+
      * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
      * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
 
