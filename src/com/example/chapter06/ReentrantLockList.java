@@ -4,10 +4,12 @@ import java.util.ArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * 使用ReentrantLock实现一个线程安全的List
+ * 使用 ReentrantLock 实现一个线程安全的List
+ * 每次增删元素之前都需要获取到锁
  */
-public class ReentrantLockTest<E> {
+public class ReentrantLockList<E> {
 
+    // 线程不安全的 list
     private ArrayList<E> list = new ArrayList<>();
     private volatile ReentrantLock lock = new ReentrantLock();
 

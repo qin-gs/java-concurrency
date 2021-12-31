@@ -724,34 +724,33 @@ lock.newCondition(); 在 AQS 内部创建了一个 ConditionObject 对象，每�
 
 **一个锁对应一个 AQS 阻塞队列，对应多个条件变量，每个条件变量有自己的条件队列**
 
-// TODO 自定义一个同步器
-
 
 
 ### 6.3 独占锁 ReentrantLock 原理
 
 
 
-ReentrantLock可重入独占锁，默认为**非公平**锁，state为线程获取该锁的**可重入次数**(每获取一次值加1)
+ReentrantLock可重入独占锁，其他获取该锁的线程会被阻塞放入该锁的 AQS 阻塞队列中，默认为**非公平**锁，state为线程获取该锁的**可重入次数**(每获取一次值加1)
 
 FairSync, NonFairSync 两个类都继承自 AQS，用来实现公平锁和非公平锁
 
  1. 获取锁 lock()
 
-    非公平锁
+    该方法委托给 sync 类，根据构造函数选择是 FairSync 或 NonFairSync
+
+    非公平锁 (先尝试获取锁的线程不一定比后尝试获取锁的线程优先获取到锁，线程在获取锁之前并没有查看 AQS 队列里是否有比自己更早请求该锁的线程，使用抢夺策略)
 
      * 如果锁当前没有被其他线程占有并当前线程没有获取过该锁，则当前线程会获取到该锁，并设置当前锁的拥有线程为当前线程(setExclusiveOwnerThread)
-       设置AQS的状态值为1，直接返回
-     * 如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
-     * 如果该锁已被其他线程持有，该线程会被放入AQS队列后阻塞挂起
+     * 设置 AQS 的状态值为1，直接返回，如果当前线程已经获取了该锁，只是简单的将AQS的状态值+1
+     * 如果该锁已被其他线程持有，该线程会被放入 AQS 队列后阻塞挂起
 
     公平锁
 
-     * 会判断是否有前驱节点
+     * 会判断是否有**前驱节点**
 
- 2. lockInterruptibly()
+ 2. lockInterruptibly()   (与 lock 类似)
 
-    相应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，返回
+    响应中断： 当前线程在调用该方法时，如果其他线程调用了当前线程的interrupt()方法，当前线程会抛出InterruptedException，然后返回
 
  3. tryLock() 非公平
 
@@ -766,32 +765,49 @@ FairSync, NonFairSync 两个类都继承自 AQS，用来实现公平锁和非公
     释放锁
 
      * 如果当前线程持有锁，调用该方法会让该线程对该线程持有的AQS状态值-1，如果-1之后状态中为0，当前线程会释放该锁(setExclusiveOwnerThread)， 否则仅仅-1而已
-     * 如果当前线程没有持有该锁，抛出IllegalMonitorStateException
+     * 如果当前线程没有持有该锁，抛出 IllegalMonitorStateException
 
 
 
-### 6.4 ReentrantReadWriteLock原理 读写分离，允许多个线程可以同时获取读锁
+### 6.4 ReentrantReadWriteLock原理 
 
 
 
-1. 类图  
-   读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 依次表示 读状态 和 写状态(最大可重入次数为65535)  
-   firstReader 记录第一个获取到读锁的线程  
-   firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数  
-   cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数  
+读写分离，允许多个线程可以同时获取读锁
+
+1. 类图
+
+   读写锁内部维护了 ReadLock 和 WriteLock 类，使用state的低16位 和 高16位 [**读|写**] (最大可重入次数为65535)
+
+   firstReader 记录第一个获取到读锁的线程
+
+   firstReaderHoldCount 记录第一个获取到读锁的线程获取读锁的可重入次数
+
+   cachedHoldCounter 记录最后一个获取读锁的线程获取读锁的可重入次数
+
    readHolds (ThreadLocal)存放除去第一个线程外的其他线程获取读锁的可重入次数
 
 2. 写锁(WriteLock)的获取与释放
-    1. lock()  
-       独占锁+可重入锁，某个时刻只能有一个线程获取该锁  
+    1. lock()
+
+       **独占锁+可重入锁**，某个时刻只能有一个线程获取该锁
+
        判断是否有其他线程获取读锁
+
     2. lockInterruptibly() 会对中断进行相应
-    3. tryLock()  
+
+    3. tryLock()
+
        尝试获取写锁，非公平策略
-    4. tryLock(long timeout, TimeUnit unit)  
-       如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false  
+
+    4. tryLock(long timeout, TimeUnit unit)
+
+       如果尝试获取写锁失败，将当前线程挂起指定时间，待超时时间到后当前线程被激活，如果还没有获取到写锁返回false
+
        该方法会相应中断(如果其他线程调用该线程的interrupt()，则抛出异常)
-    5. unLock()  
+
+    5. unLock()
+
        尝试释放锁，判断低16位(将状态值-1)
 
 3. 读锁(ReadLock)的获取与释放

@@ -11,10 +11,14 @@ import java.util.concurrent.locks.Lock;
  */
 public class NonReentrantLock implements Lock, Serializable {
 
+    private static final long serialVersionUID = -7929977307306918534L;
+
     /**
-     * 内部帮助类
+     * 内部帮助类，完成独占锁操作
      */
     private static class Sync extends AbstractQueuedSynchronizer {
+
+        private static final long serialVersionUID = -4765787625483380808L;
 
         /**
          * 锁是否已经被持有
@@ -85,6 +89,10 @@ public class NonReentrantLock implements Lock, Serializable {
 
     @Override
     public Condition newCondition() {
-        return null;
+        return sync.newCondition();
+    }
+
+    public boolean isLocked() {
+        return sync.isHeldExclusively();
     }
 }
