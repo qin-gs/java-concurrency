@@ -11,6 +11,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 public class ReentrantReadWriteLockTest<E> {
 
     private ArrayList<E> list = new ArrayList<>();
+    /**
+     * 独占锁
+     */
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final ReadLock readLock = lock.readLock();
     private final WriteLock writeLock = lock.writeLock();
