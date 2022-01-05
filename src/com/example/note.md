@@ -863,120 +863,177 @@ FairSync, NonFairSync 两个类都继承自 AQS，用来实现公平锁和非公
 
 
 
-阻塞队列 锁  
-非阻塞队列 CAS
+阻塞队列 -->  锁
 
-1. ConcurrentLinkedQueue  
-   线程安全的无界非阻塞队列，CAS  
-   单项链表实现 两个 volatile Node 存放队列首位节点  
-   使用Unsafe工具类提供的CAS算法保证出入队时操作链表的原子性
-
-    1. offer()  
-       在队列末尾添加一个元素，如果传递的参数为null，抛出空指针异常，使用CAS无阻塞算法，不会挂起调用的线程
-
-2. LinkedBlockingQueue  
-   有界阻塞 独占锁实现  
-   单向链表  
-   Node<E> head last 存放首尾节点  
-   AtomicInteger count 记录队列元素个数  
-   ReentrantLock takeLock putLock 控制出队入队的原子性  
-   Condition notEmpty notFull 条件变量，内部存在一个条件队列存放入队出队被阻塞的线程
-
-    1. offer(E e)  
-       向队列尾部插入一个元素，成功则返回true，如果队列已满丢弃其当前元素返回false
-        1. 如果e为null抛出空指针异常 非阻塞的
-        2. 如果当前队列满，丢弃当前元素，返回false
-        3. 构造新节点，获取putLock独占锁
-        4. 如果队列不满则入队，并递增元素计数
-        5. 唤醒notFull队列里因为调用了notFull的await操作而被阻塞的一个线程(put或offer时队列满的时候)， 现在队列有空闲，所有可以提前唤醒一个入队线程
-        6. 在finally里释放putLock锁
-        7. 如果目前队列中至少有一个元素则signalNotEmpty，激活notEmpty队列中因为调用notEmpty的await方法而被阻塞的线程(调用take方法并且队列为空)
-           (获取条件变量的方法前要获取对应的锁)
-           ```
-                putLock.lock() -> notFull.signal() -> putLock.unlock()
-                takeLock.lock() -> notEmpty.signal() -> takeLock.unlock()
-           ```
-           offer方法通过使用putLock锁保证在队列尾部新增元素操作的原子性
-
-    2. put(E e)
-       向队列尾部插入元素，如果队列有空闲直接插入返回，如果队列已满则阻塞当前线程，直至成功插入  
-       如果在队列阻塞期间被其他线程设置了中断标志，则抛出异常返回(e不能为null)
-
-    3. poll()
-       从队列头获取并移除一个元素，如果队列为空返回null，不阻塞
-        1. 如果队列为空，返回null
-        2. 获取takeLock独占锁(其他线程在调用poll或take时会被阻塞挂起)
-        3. 如果队列不为空执行出队操作，递减计数器
-        4. 如果当前队列移除队首元素后不为空，则激活因为调用take方法而被阻塞到notEmpty队列里的一个线程
-        5. 在finally中释放takeLock锁
-        6. 如果移除元素前队列是满的，移除一个之后至少有一个空闲位置，调用signalNotFull激活因为调用put方法而被 阻塞到notFull的条件队列里的线程
-
-    4. take()  
-       获取当前队列的头部元素并移除 如果队列为空则阻塞纸质队列不为空返回返回，如果在阻塞时其他线程设置了中断，该线程抛出异常返回
-
-    5. peek()
-       获取队列的头部元素但不移除它，队列为空返回null 不阻塞
-
-    6. remove()
-       删除队列里的指定元素 有则删除返回true，否则返回false  
-       需要同时获取takeLock和putLock(需要遍历队列查找指定元素，会在阻塞其他入队出队的线程)，获取锁和释放锁的顺序时相反的
-
-    7. size()  
-       获取当前元素个数
-
-3. ArrayBlockingQueue  
-   采用有界数组实现阻塞队列，构造函数必须指定队列容量 默认非公平锁  
-   Object[] item 存放元素  
-   putIndex 入队元素下标  
-   takeIndex 出队元素下标   
-   count 统计队列元素数量  
-   ReentrantLock lock 保证出队入队的原子性，同一时刻只能有一个线程进行入队或出队操作  
-   Condition notEmpty notFull 进行出队入队同步
-
-    1. offer(E e)
-    2. put(E e)
-    3. poll()
-    4. take()
-    5. peek()
-    6. size() 精确值 (获取锁后访问的变量都是从主内存获取的，这保证了变量的内存可见性)
-
-4. PriorityBlockingQueue   
-   带优先级的无界阻塞队列，每次出队返回优先级最高或最低的元素 平衡二叉树堆实现  
-   遍历元素不保证有序，默认使用对象的compareTo进行比较  
-   Object[] queue 数组存放元素  
-   size 存放元素个数  
-   volatile int allocationSpinLock 自旋锁，使用CAS操作保证同一时刻只能有一个线程可以扩容队列  
-   notEmpty 实现take方法阻塞模式(没有notFull，因为put操作是非阻塞的不会被await，无界队列)  
-   默认容量11 默认比较器null(compareTo)
-
-    1. offer(E e)
-       向队列中插入一个元素，无界队列所以一直返回true  
-       如果当前元素个数 >= 队列容量 扩容(会释放锁，使用CAS控制只有一个线程可以进行扩容)  
-       其他线程会yield让出CPU，让扩容线程成功后重新获取锁
-
-    2. poll()
-       获取队列内堆的根节点元素，如果队列为空返回null
+非阻塞队列 -->  CAS
 
 
-5. DelayQueue  
-   无界阻塞延迟队列，每个元素都有过期时间，获取元素时，只有过期元素才会出队，队头元素时最快要过期的元素  
-   使用PriorityQueue存放数据，使用ReentrantLock实现线程同步  
-   实现Delay接口(获取当前元素还剩下多少时间就过期)  
-   Condition available 实现线程同步  
-   Thread leader 一个线程调用take方法会变成leader线程，调用条件变量available.awaitNanos(delay)等待delay时间， 其他线程调用available.await()
-   无限等待。leader线程延迟时间过期以后，会退出take方法，调用available.signal()
-   唤醒一个follower线程，被唤醒的线程成为新的leader线程(leader线程用来说明是否有其他线程在执行take)  
-   减少线程等待
 
-    1. offer(E e)
-       插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)  
-       插入之后还要判断新插入的是不是最先过期的
+### 7.1 ConcurrentLinkedQueue  
 
-    2. take()
-       获取并移除队列里过期的元素，没有则等待
+线程安全的**无界非阻塞**队列，CAS
 
-    3. poll()
-       获取并移除队头过期元素，没有过期元素返回null
+**单向链表**实现 两个 volatile Node 存放队列首尾节点。新元素插入到队列尾部，出队时从头部获取一个元素
+
+Node 内部使用一个 `volatile E item` 存放节点的值，`volatile Node<E> next;`存放链表的下一个节点
+
+使用 Unsafe 工具类提供的 CAS 算法保证出入队时操作链表的原子性
+
+ 1. offer()
+
+    在队列末尾添加一个元素，如果传递的参数为null，抛出空指针异常，使用 CAS 无阻塞算法，**不会阻塞**挂起调用的线程
+
+    // TODO
+
+2. add()
+
+   调用 offer()
+
+3. poll()
+
+   移除并返回队列头部元素 // TODO
+
+4. peek()
+
+   获取队头元素 // TODO
+
+5. size()
+
+   计算当前队列元素个数(不精确)
+
+6. remove()
+
+   如果存在指定元素就删除第一个
+
+7. contains()
+
+   判断队列中是否包含指定对象(不精确)
+
+
+
+### 7.2 LinkedBlockingQueue  
+
+**有界阻塞** 独占锁实现
+
+单向链表
+
+`Node<E> head last` 存放首尾节点
+
+`AtomicInteger count` 记录队列元素个数
+
+`ReentrantLock takeLock` 控制同时只能有一个线程从队列头获取元素，其他线程等待
+
+`ReentrantLock putLock` 控制只能由一个线程可以获取锁，在队列尾部添加元素，其他线程等待
+
+`Condition notEmpty notFull` 条件变量，内部存在一个条件队列存放入队出队被阻塞的线程
+
+ 1. offer(E e)
+    
+    向队列尾部插入一个元素，成功则返回true，如果队列已满丢弃其当前元素返回false
+    
+     1. 如果e为null抛出空指针异常 非阻塞的
+     2. 如果当前队列满，丢弃当前元素，返回false
+     3. 构造新节点，获取putLock独占锁
+     4. 如果队列不满则入队，并递增元素计数
+     5. 唤醒notFull队列里因为调用了notFull的await操作而被阻塞的一个线程(put或offer时队列满的时候)， 现在队列有空闲，所有可以提前唤醒一个入队线程
+     6. 在finally里释放putLock锁
+     7. 如果目前队列中至少有一个元素则signalNotEmpty，激活notEmpty队列中因为调用notEmpty的await方法而被阻塞的线程(调用take方法并且队列为空)
+        (获取条件变量的方法前要获取对应的锁)
+        
+        ```
+        putLock.lock() -> notFull.signal() -> putLock.unlock()
+        takeLock.lock() -> notEmpty.signal() -> takeLock.unlock()
+        ```
+        offer方法通过使用putLock锁保证在队列尾部新增元素操作的原子性
+    
+ 2. put(E e)
+
+    向队列尾部插入元素，如果队列有空闲直接插入返回，如果队列已满则阻塞当前线程，直至成功插入  
+    如果在队列阻塞期间被其他线程设置了中断标志，则抛出异常返回(e不能为null)
+
+ 3. poll()
+
+    从队列头获取并移除一个元素，如果队列为空返回null，不阻塞
+
+     1. 如果队列为空，返回null
+     2. 获取takeLock独占锁(其他线程在调用poll或take时会被阻塞挂起)
+     3. 如果队列不为空执行出队操作，递减计数器
+     4. 如果当前队列移除队首元素后不为空，则激活因为调用take方法而被阻塞到notEmpty队列里的一个线程
+     5. 在finally中释放takeLock锁
+     6. 如果移除元素前队列是满的，移除一个之后至少有一个空闲位置，调用signalNotFull激活因为调用put方法而被 阻塞到notFull的条件队列里的线程
+
+ 4. take()
+
+    获取当前队列的头部元素并移除 如果队列为空则阻塞纸质队列不为空返回返回，如果在阻塞时其他线程设置了中断，该线程抛出异常返回
+
+ 5. peek()
+
+    获取队列的头部元素但不移除它，队列为空返回null 不阻塞
+
+ 6. remove()
+
+    删除队列里的指定元素 有则删除返回true，否则返回false  
+    需要同时获取takeLock和putLock(需要遍历队列查找指定元素，会在阻塞其他入队出队的线程)，获取锁和释放锁的顺序时相反的
+
+ 7. size()
+
+    获取当前元素个数
+
+### 7.3 ArrayBlockingQueue  
+
+采用有界数组实现阻塞队列，构造函数必须指定队列容量 默认非公平锁  
+Object[] item 存放元素  
+putIndex 入队元素下标  
+takeIndex 出队元素下标   
+count 统计队列元素数量  
+ReentrantLock lock 保证出队入队的原子性，同一时刻只能有一个线程进行入队或出队操作  
+Condition notEmpty notFull 进行出队入队同步
+
+ 1. offer(E e)
+ 2. put(E e)
+ 3. poll()
+ 4. take()
+ 5. peek()
+ 6. size() 精确值 (获取锁后访问的变量都是从主内存获取的，这保证了变量的内存可见性)
+
+### 7.4 PriorityBlockingQueue   
+
+带优先级的无界阻塞队列，每次出队返回优先级最高或最低的元素 平衡二叉树堆实现  
+遍历元素不保证有序，默认使用对象的compareTo进行比较  
+Object[] queue 数组存放元素  
+size 存放元素个数  
+volatile int allocationSpinLock 自旋锁，使用CAS操作保证同一时刻只能有一个线程可以扩容队列  
+notEmpty 实现take方法阻塞模式(没有notFull，因为put操作是非阻塞的不会被await，无界队列)  
+默认容量11 默认比较器null(compareTo)
+
+ 1. offer(E e)
+    向队列中插入一个元素，无界队列所以一直返回true  
+    如果当前元素个数 >= 队列容量 扩容(会释放锁，使用CAS控制只有一个线程可以进行扩容)  
+    其他线程会yield让出CPU，让扩容线程成功后重新获取锁
+
+ 2. poll()
+    获取队列内堆的根节点元素，如果队列为空返回null
+
+### 7.5 DelayQueue  
+
+无界阻塞延迟队列，每个元素都有过期时间，获取元素时，只有过期元素才会出队，队头元素时最快要过期的元素  
+使用PriorityQueue存放数据，使用ReentrantLock实现线程同步  
+实现Delay接口(获取当前元素还剩下多少时间就过期)  
+Condition available 实现线程同步  
+Thread leader 一个线程调用take方法会变成leader线程，调用条件变量available.awaitNanos(delay)等待delay时间， 其他线程调用available.await()
+无限等待。leader线程延迟时间过期以后，会退出take方法，调用available.signal()
+唤醒一个follower线程，被唤醒的线程成为新的leader线程(leader线程用来说明是否有其他线程在执行take)  
+减少线程等待
+
+ 1. offer(E e)
+    插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)  
+    插入之后还要判断新插入的是不是最先过期的
+
+ 2. take()
+    获取并移除队列里过期的元素，没有则等待
+
+ 3. poll()
+    获取并移除队头过期元素，没有过期元素返回null
 
 ## 线程池原理
 
