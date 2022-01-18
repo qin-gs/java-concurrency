@@ -1028,82 +1028,140 @@ Thread leader 一个线程调用take方法会变成leader线程，调用条件�
  1. offer(E e)
     插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)  
     插入之后还要判断新插入的是不是最先过期的
-
  2. take()
     获取并移除队列里过期的元素，没有则等待
-
  3. poll()
     获取并移除队头过期元素，没有过期元素返回null
 
-## 线程池原理
 
-1. 作用：
-    1. 执行大量异步任务时提供较好的性能(线程可复用，不需每次都创建和销毁线程)
-    2. 提供一种资源限制和管理的手段(限制线程个数)
 
-2. 类图 和 一些参数
-    1. ThreadPoolExecutor AtomicInteger ctl(高3位表示线程池状态，低29位表示线程池线程个数)
-    2. corePoolSize
-    3. maximumPoolSize
-    4. keepAliveTime 0表示线程个数比核心线程个数多并空闲时立刻回收
-    5. timeUnit
-    6. workQueue 保持等待执行线程的阻塞队列
-    7. ThreadFactory 创建线程的工程
-    8. rejectedExecutionHandler 饱和策略
+## 8. 线程池原理
 
-    9. works 继承AQS Runnable 具体承载任务的对象 10.Work firstTask 记录该工作线程执行的第一个任务
-    11. Work thread 具体执行任务的线程
 
-    12. ThreadFactory newThread() 对线程的一个修饰
-    13. ThreadFactory poolNumber(static AtomicInteger) 统计线程工程的个数
-    14. ThreadFactory threadNumber 记录每个线程工程创建了多少线程
 
-3. 源码分析
+### 8.1 介绍
 
-    1. execute(Runnable) 提交任务到线程池并进行执行
-        1. 如果runnable为null，抛出NullPointerException异常
-        2. 获取线程池当前状态 + 线程个数 (ctl)
-        3. 判断当前线程池的线程个数是否小于corePoolSize，小于的话开启新线程
-        4. 如果线程处于RUNNABLE状态，添加任务到阻塞队列，
-            1. 二次检测线程池状态 + 线程个数 (ctl)
-            2. 如果线程池状态不是RUNNABLE，则从队列中删除任务，执行拒绝策略
-            3. 如果线程池为空，添加一个线程
-        5. 如果队列满，新增线程，新增失败就执行拒绝策略
+作用：
 
-       addWork(Runnable, core) // 新增线程
-        1. 双重循环，通过CAS增加线程数
-            1. 检查队列是否只在必要时为空
-            2. 使用CAS增加线程数 如果线程个数超过限制返回false； 用CAS增加线程个数，只有一个线程成功； 如果CAS失败，查看线程池状态是否变化了，如果变化了跳到外层从新获取线程池状态，构造内循环重新CAS创建线程
-        2. 把并发安全的任务添加到workers里，并启动任务执行
-            1. 已经CAS创建线程成功了，使用独占锁ReentrantLock将新的Work添加到workers里面 重新检查线程池状态；如果线程池关闭 -> 释放锁，新增任务失败；
-               否则添加工作线程到线程工作集workers，释放锁，最后启动
+1. 执行大量异步任务时提供较好的性能(线程可复用，不需每次都创建和销毁线程)
+2. 提供一种资源限制和管理的手段(限制线程个数)
 
-    2. 工作线程Worker的执行  
-       用户线程提交任务到线程池后，由Worker来执行。
-        1. 设置worker的状态为-1(避免当前Worker在调用runWorker方法前被中断)
-        2.
-        3. 创建一个线程  
-           shutdown只会终端当前被阻塞挂起的线程
 
-    3. shutdown 调用shutdown()之后，线程池就不再接收新任务，当工作队列里的任务还是要执行    
-       该方法会立刻返回，不对等到队列的任务完成后再返回。
-        1. 权限检查(查看调用shutdown方法的线程是否由中断工作线程的权限(SecurityException, NullPointerException))
-        2. 设置当前线程池的状态为shutdown，如果已经是shutdown直接返回
-        3. 设置中断标志(设置所有空闲线程的中中断标志)
 
-    4. shutdownNow 调用该方法后，不会接收新任务，并丢弃工作队列里的任务，正在执行的任务被中断  
-       该方法立刻返回，不等待激活的任务执行完成，返回值为队列里被丢弃的任务列表
-        1. 权限检查
-        2. 设置线程池状态为stop
-        3. 中断所有线程(空闲 + 正在执行的)
-        4. 将队列任务移动到tasks(List<Runnable>)中，返回回去
+### 8.2 类图 和 一些参数
 
-    5. awaitTermination 线程调用该方法后，当前线程会被阻塞，直到线程池状态变为terminated才返回，或等待时间超时才返回
-        1. 获取独占锁
-        2. 判断当前线程池是否为terminated状态，是的话直接返回
-        3. 否则说明当前线程池里面还有线程在执行，判断设置的超时时间nanos是否小于0，小于0说明不需等待直接返回false
-        4. 如果nanos大于0，调用条件变量的termination.awaitNanos()方法等待nanos时间，期望这段时间内线程池状态变为terminated
-        5. 等待时间超时后，重新检查当前线程池状态是否为terminated，是的话直接返回，否则绩效阻塞挂起自己
+![ThreadPoolExecutor继承关系](./imgs/ThreadPoolExecutor继承关系.png)
+
+成员变量 AtomicInteger ctl 记录 线程池的状态 和 线程池中线程个数
+
+高3位表示线程池状态，低29位记录线程个数
+
+
+
+**线程池状态**：
+
+- running：接受新任务  处理阻塞队列中的任务
+
+- shutdown：拒绝新任务  处理阻塞队列中的任务
+
+- stop：拒绝新任务  抛出阻塞队列中的任务  中断正在执行的任务
+
+- tidying：所有任务执行完(队列也为空)，将要调用 terminated 方法
+
+- terminated：终止状态
+
+  |            | running | shutdown   | stop          | tidying            | terminated                    |
+  | ---------- | ------- | ---------- | ------------- | ------------------ | ----------------------------- |
+  | runnning   |         | shutdown() | shutdownNow() |                    |                               |
+  | shutdown   |         |            | shutdownNow() | 线程池，队列都为空 |                               |
+  | stop       |         |            |               | 线程池为空         |                               |
+  | tidying    |         |            |               |                    | terminated() hook方法执行完成 |
+  | terminated |         |            |               |                    |                               |
+
+
+
+**线程池参数**：
+
+1. corePoolSize：核心线程数量
+2. maximumPoolSize：最大线程数量
+3. keepAliveTime：闲置线程的存活时间，0表示线程个数比核心线程个数多并空闲时立刻回收
+4. timeUnit：存活时间的单位
+5. workQueue：保存等待执行线程的阻塞队列
+6. ThreadFactory：创建线程的工厂
+7. rejectedExecutionHandler：饱和策略(队列已满且线程个数达到最大时采取的策略)
+
+
+
+**线程池类型**：
+
+- newFixedThreadPool：核心线程数 = 最大线程数 (阻塞队列长度 Integer.MAX_VALUE)
+- newSingleThreadExecutor：核心线程数 = 最大线程数 = 1 (阻塞队列长度 Integer.MAX_VALUE)
+- newCachedThreadPool：初始线程数为0，最大线程数=Integer.MAX_VALUE
+
+
+
+Worker
+
+1. works 继承 AQS Runnable 具体**承载任务**的对象 ，实现不可重入独占锁(state=-1默认状态，state=0未被获取，state=1已被获取)
+2. firstTask 记录该工作线程执行的第一个任务
+3. thread 具体执行任务的线程
+
+
+
+DefaultThreadFactory 线程工厂
+
+1. newThread() 对线程的一个修饰
+2. poolNumber(static AtomicInteger) 统计线程工程的个数
+3. threadNumber 记录每个线程工厂创建了多少线程
+
+
+
+### 8.3 源码分析
+
+1. execute(Runnable) 提交任务到线程池并进行执行
+    1. 如果runnable为null，抛出NullPointerException异常
+    2. 获取线程池当前状态 + 线程个数 (ctl)
+    3. 判断当前线程池的线程个数是否小于corePoolSize，小于的话开启新线程
+    4. 如果线程处于RUNNABLE状态，添加任务到阻塞队列，
+        1. 二次检测线程池状态 + 线程个数 (ctl)
+        2. 如果线程池状态不是RUNNABLE，则从队列中删除任务，执行拒绝策略
+        3. 如果线程池为空，添加一个线程
+    5. 如果队列满，新增线程，新增失败就执行拒绝策略
+
+   addWork(Runnable, core) // 新增线程
+    1. 双重循环，通过CAS增加线程数
+        1. 检查队列是否只在必要时为空
+        2. 使用CAS增加线程数 如果线程个数超过限制返回false； 用CAS增加线程个数，只有一个线程成功； 如果CAS失败，查看线程池状态是否变化了，如果变化了跳到外层从新获取线程池状态，构造内循环重新CAS创建线程
+    2. 把并发安全的任务添加到workers里，并启动任务执行
+        1. 已经CAS创建线程成功了，使用独占锁ReentrantLock将新的Work添加到workers里面 重新检查线程池状态；如果线程池关闭 -> 释放锁，新增任务失败；
+           否则添加工作线程到线程工作集workers，释放锁，最后启动
+
+2. 工作线程Worker的执行  
+   用户线程提交任务到线程池后，由Worker来执行。
+    1. 设置worker的状态为-1(避免当前Worker在调用runWorker方法前被中断)
+    2.
+    3. 创建一个线程  
+       shutdown只会终端当前被阻塞挂起的线程
+
+3. shutdown 调用shutdown()之后，线程池就不再接收新任务，当工作队列里的任务还是要执行    
+   该方法会立刻返回，不对等到队列的任务完成后再返回。
+    1. 权限检查(查看调用shutdown方法的线程是否由中断工作线程的权限(SecurityException, NullPointerException))
+    2. 设置当前线程池的状态为shutdown，如果已经是shutdown直接返回
+    3. 设置中断标志(设置所有空闲线程的中中断标志)
+
+4. shutdownNow 调用该方法后，不会接收新任务，并丢弃工作队列里的任务，正在执行的任务被中断  
+   该方法立刻返回，不等待激活的任务执行完成，返回值为队列里被丢弃的任务列表
+    1. 权限检查
+    2. 设置线程池状态为stop
+    3. 中断所有线程(空闲 + 正在执行的)
+    4. 将队列任务移动到tasks(List<Runnable>)中，返回回去
+
+5. awaitTermination 线程调用该方法后，当前线程会被阻塞，直到线程池状态变为terminated才返回，或等待时间超时才返回
+    1. 获取独占锁
+    2. 判断当前线程池是否为terminated状态，是的话直接返回
+    3. 否则说明当前线程池里面还有线程在执行，判断设置的超时时间nanos是否小于0，小于0说明不需等待直接返回false
+    4. 如果nanos大于0，调用条件变量的termination.awaitNanos()方法等待nanos时间，期望这段时间内线程池状态变为terminated
+    5. 等待时间超时后，重新检查当前线程池状态是否为terminated，是的话直接返回，否则绩效阻塞挂起自己
 
 ## 10. 同步器原理
 
