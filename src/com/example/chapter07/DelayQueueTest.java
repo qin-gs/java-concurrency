@@ -18,11 +18,17 @@ public class DelayQueueTest {
             this.expire = System.currentTimeMillis() + delayTime;
         }
 
+        /**
+         * 获取剩余多长时间过期
+         */
         @Override
         public long getDelay(TimeUnit unit) {
             return unit.convert(this.expire - System.currentTimeMillis(), TimeUnit.MILLISECONDS);
         }
 
+        /**
+         * 获取优先级规则
+         */
         @Override
         public int compareTo(Delayed o) {
             return (int) (this.getDelay(TimeUnit.MILLISECONDS) - o.getDelay(TimeUnit.MILLISECONDS));
@@ -47,6 +53,7 @@ public class DelayQueueTest {
             queue.offer(ele);
         }
 
+        // 等待任务过期，取出
         DelayEle ele = null;
         try {
             for (; ; ) {

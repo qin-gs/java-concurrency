@@ -940,7 +940,7 @@ Node 内部使用一个 `volatile E item` 存放节点的值，`volatile Node<E>
      7. 如果目前队列中至少有一个元素则signalNotEmpty，激活notEmpty队列中因为调用notEmpty的await方法而被阻塞的线程(调用take方法并且队列为空)
         (获取条件变量的方法前要获取对应的锁)
         
-        ```
+        ```java
         putLock.lock() -> notFull.signal() -> putLock.unlock()
         takeLock.lock() -> notEmpty.signal() -> takeLock.unlock()
         ```
@@ -972,7 +972,8 @@ Node 内部使用一个 `volatile E item` 存放节点的值，`volatile Node<E>
 
  6. remove()
 
-    删除队列里的指定元素 有则删除返回true，否则返回false  
+    删除队列里的指定元素 有则删除返回true，否则返回false
+
     需要同时获取takeLock和putLock(需要遍历队列查找指定元素，会在阻塞其他入队出队的线程)，获取锁和释放锁的顺序时相反的
 
  7. size()
@@ -981,57 +982,108 @@ Node 内部使用一个 `volatile E item` 存放节点的值，`volatile Node<E>
 
 ### 7.3 ArrayBlockingQueue  
 
-采用有界数组实现阻塞队列，构造函数必须指定队列容量 默认非公平锁  
-Object[] item 存放元素  
-putIndex 入队元素下标  
-takeIndex 出队元素下标   
-count 统计队列元素数量  
-ReentrantLock lock 保证出队入队的原子性，同一时刻只能有一个线程进行入队或出队操作  
+使用全局独占锁实现同时只有一个线程能入队或出队，粒度较大
+
+采用**有界数组**实现阻塞队列，构造函数必须指定队列容量 默认使用 ReentrantLock 提供非公平锁
+
+Object[] item 存放元素
+
+putIndex 入队元素下标
+
+takeIndex 出队元素下标 
+
+count 统计队列元素数量
+
+ReentrantLock lock 保证出队入队的原子性，同一时刻只能有一个线程进行入队或出队操作
+
 Condition notEmpty notFull 进行出队入队同步
 
- 1. offer(E e)
- 2. put(E e)
- 3. poll()
- 4. take()
- 5. peek()
- 6. size() 精确值 (获取锁后访问的变量都是从主内存获取的，这保证了变量的内存可见性)
+  1. offer(E e)  如果队列已满，会丢弃元素；不阻塞
+  2. put(E e)  如果队列已满，会阻塞至插入成功
+  3. poll() 移除头部一个元素，不阻塞
+  4. take()  移除头部一个元素，阻塞至队列不为空
+  5. peek()  获取头部元素不移除；不阻塞
+  6. size() 精确值 (获取锁后访问的变量都是从主内存获取的，这保证了变量的内存可见性)
+
+
 
 ### 7.4 PriorityBlockingQueue   
 
-带优先级的无界阻塞队列，每次出队返回优先级最高或最低的元素 平衡二叉树堆实现  
-遍历元素不保证有序，默认使用对象的compareTo进行比较  
-Object[] queue 数组存放元素  
-size 存放元素个数  
-volatile int allocationSpinLock 自旋锁，使用CAS操作保证同一时刻只能有一个线程可以扩容队列  
-notEmpty 实现take方法阻塞模式(没有notFull，因为put操作是非阻塞的不会被await，无界队列)  
+带优先级的无界阻塞队列，每次出队返回**优先级最高或最低**的元素 平衡二叉树堆实现
+
+遍历元素不保证有序，默认使用对象的compareTo进行比较
+
+Object[] queue 数组存放元素
+
+size 存放元素个数
+
+volatile int allocationSpinLock 自旋锁，使用CAS操作保证同一时刻只能有一个线程可以扩容队列
+
+notEmpty 实现take方法阻塞模式(没有notFull，因为put操作是非阻塞的不会被await，无界队列)
+
 默认容量11 默认比较器null(compareTo)
 
  1. offer(E e)
-    向队列中插入一个元素，无界队列所以一直返回true  
-    如果当前元素个数 >= 队列容量 扩容(会释放锁，使用CAS控制只有一个线程可以进行扩容)  
+    
+    向队列中插入一个元素，无界队列所以一直返回true
+    
+    如果当前元素个数 >= 队列容量 **扩容 建堆**(会释放锁，使用CAS控制只有一个线程可以进行扩容)
+    
     其他线程会yield让出CPU，让扩容线程成功后重新获取锁
-
+    
  2. poll()
+
     获取队列内堆的根节点元素，如果队列为空返回null
+
+ 3. put
+
+    直接调用 offer
+
+ 4. take
+
+    获取树的根节点元素，为空则阻塞至放入元素
+
+ 5. size
+
+    获取队列元素个数 (精确)
+
+
 
 ### 7.5 DelayQueue  
 
-无界阻塞延迟队列，每个元素都有过期时间，获取元素时，只有过期元素才会出队，队头元素时最快要过期的元素  
-使用PriorityQueue存放数据，使用ReentrantLock实现线程同步  
-实现Delay接口(获取当前元素还剩下多少时间就过期)  
-Condition available 实现线程同步  
+无界阻塞延迟队列，每个元素都有过期时间，获取元素时，只有过期元素才会出队，队头元素时最快要过期的元素
+
+使用PriorityQueue存放数据，使用ReentrantLock实现线程同步
+
+实现Delay接口(获取当前元素还剩下多少时间就过期)
+
+Condition available 实现线程同步
+
 Thread leader 一个线程调用take方法会变成leader线程，调用条件变量available.awaitNanos(delay)等待delay时间， 其他线程调用available.await()
+
 无限等待。leader线程延迟时间过期以后，会退出take方法，调用available.signal()
-唤醒一个follower线程，被唤醒的线程成为新的leader线程(leader线程用来说明是否有其他线程在执行take)  
+
+唤醒一个follower线程，被唤醒的线程成为新的leader线程(leader线程用来说明是否有其他线程在执行take)
+
 减少线程等待
 
  1. offer(E e)
-    插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)  
+
+    插入元素到队列 由于是无界队列，一直返回true(插入的元素要实现Delay接口)
+
     插入之后还要判断新插入的是不是最先过期的
+
  2. take()
-    获取并移除队列里过期的元素，没有则等待
+
+    获取并移除队列里过期的元素，没有过期元素则等待
+
  3. poll()
+
     获取并移除队头过期元素，没有过期元素返回null
+
+ 4. size()
+
+    队列中元素个数 (过期 + 未过期)
 
 
 
@@ -1237,80 +1289,192 @@ ScheduledFutureTask  period 表示任务类型
 
 
 
+3. scheduleAtFixedRate
+
+   相对起始时间点以固定频率调用指定任务，直到 抛出异常，取消任务，关闭线程池
+
+   执行规则： initdelay + n * period
+
+   如果当前任务还没执行完，下一次要执行任务的时间到了，**不会并发**执行，会等到当前任务执行完毕后再执行
+
+
+
 ## 10. 同步器原理
 
-1. CountDownLatch 使用场景：在主线程中开启多个线程执行任务，并且主线程要等待所有子线程执行完毕后再进行汇总  
-   主线程调用await()方法后会被阻塞，子线程执行完毕后调用countDown()让计数器-1，所有子线程执行完毕后计数器为0，然后主线程的await()方法返回  
-   一次性的
-
-   CountDownLatch join 区别:
-    1. 调用子线程的join()方法(threadOne.join())后，主线程会一直阻塞等待子线程运行完毕， CountDownLatch允许子线程运行完毕 或 运行过程中进行计数器递减，让主线程返回而不一定等到子线程结束
-    2. 使用线程池管理线程后，直接添加runnable到线程池，就没有办法调用join方法了；latch更灵活
-
-   原理 将计数器的值赋给AQS的state状态变量
-    1. await()
-       调用该方法后，当前线程会被阻塞，直到：
-        1. 所有线程都调用了countDown方法让计数器为0
-        2. 其他线程调用了interrupt()中断当前线程，当前线程抛出InterruptedException异常，然后返回  
-           线程获取资源时可以被中断，获取的资源是共享资源
-            1. 首先判断当前线程是否已被中断，是则抛出异常，否则查看当前状态中是否为0
-            2. 当前状态值为0 await方法直接返回，否则让当前线程阻塞
-
-    2. await(timeout, unit)
-       调用该方法后，当前线程会被阻塞，(放入AQS阻塞队列中等待计数器的值变为0)，直到：
-        1. 所有线程都调用countDown方法让计数器为0
-        2. 设置的timeout时间到了，因超时返回false
-        3. 其他线程调用的当前线程的interrupt方法，中断当前线程。。。
-
-    3. countDown()
-       调用该方法后，计数器-1，如果计数器的值为0，唤醒所有因调用await方法而被阻塞的线程，否则什么都不做
-
-    4. getCount()
-       获取当前计数器的值
-
-2. CycleBarrier  
-   让一组线程达到同一个状态后同时执行，可重用  
-   new CycleBarrier(int parties, Runnable barrierAction) // 计数器初始值 计数器的值为0后需要执行的任务
-   如果计数器的值为N，随后调用await方法的N-1个线程都会因到达屏障点而被阻塞  
-   第N个线程调用await方法后，计数器值为0，第N个线程发出通知唤醒前面的N-1个线程  
-   全部线程都到达屏障点后才能一起继续向下执行
-
-   基于独占锁AQS实现 parties count 记录线程个数
-
-    1. await() await(timeout, unit)
-       调用该方法时，当前线程会被阻塞，直到：
-        1. parties个线程都调用了await方法，所有的线程都到了屏障点
-        2. 其他线程调用了当前线程的interrupt()方法中断当前线程
-        3. 与当前屏障点关联的Generation对象的broken标志被设置为true，抛出BrokenBarrierException异常
-
-    2. dowait(timed, nanos)
 
 
-3. Semaphore 内部计数器递增 默认为非公平策略
-   ```
-        new Semaphore(2, true); // 公平策略 
-   ```
+### 10.1 CountDownLatch （AQS）
 
-    1. acquire()  acquire(permits)  
-       如果当前信号量>0，直接返回，否则将当前线程放入AQS的阻塞队列中(当其他线程调用了当前线程的interrupt()方法后，当前线程抛异常返回)  
-       可以响应中断  
-       for(;;) 获取当前信号量的值 计算当前剩余值  
-       如果当前剩余值<0(直接返回负数) 或 CAS设置成功(返回剩余值)  
-       公平锁：会先判断当前线程节点的前去节点是否也在等待获取该资源，是的话自己放弃获取的权限，放入AQS阻塞队列，否则去获取
+使用场景：在主线程中开启多个线程执行任务，并且主线程要等待所有子线程执行完毕后再进行汇总
 
-       可以获取permits个信号量
+主线程调用await()方法后会被阻塞，子线程执行完毕后调用countDown()让计数器-1，所有子线程执行完毕后计数器为0，然后主线程的await()方法返回
 
-    2. acquireUniterruptibly() acquireUniterruptibly(permits)  
-       该方法不响应中断(其他线程调用了当前线程的interrupt()方法后，当前线程不会抛出异常)
+一次性的
 
-    3. release() release(permits)  
-       将当前信号量的值+1，如果有线程因为调用acquire方法而被阻塞放入AQS阻塞队列，会根据公平策略选择一个信号量个数能被满足的 线程进行激活，激活的线程会尝试获取刚增加的信号量  
-       
-       
+CountDownLatch join 区别:
+ 1. 调用子线程的join()方法(threadOne.join())后，主线程会一直阻塞等待子线程运行完毕， CountDownLatch允许子线程运行完毕 或 运行过程中进行计数器递减，让主线程返回而不一定等到子线程结束
+ 2. 使用线程池管理线程后，直接添加runnable到线程池，就没有办法调用join方法了；latch更灵活
+
+原理 将计数器的值赋给AQS的state状态变量
+ 1. await()
+    
+    调用该方法后，当前线程会被阻塞，直到：
+    
+     1. 所有线程都调用了countDown方法让计数器为0
+    
+     2. 其他线程调用了interrupt()中断当前线程，当前线程抛出InterruptedException异常，然后返回
+
+        线程获取资源时可以被中断，获取的资源是共享资源
+    
+         1. 首先判断当前线程是否已被中断，是则抛出异常，否则查看当前状态中是否为0
+         2. 当前状态值为0 await方法直接返回，否则让当前线程阻塞
+    
+ 2. await(timeout, unit)
+
+    调用该方法后，当前线程会被阻塞，(放入AQS阻塞队列中等待计数器的值变为0)，直到：
+
+     1. 所有线程都调用countDown方法让计数器为0
+     2. 设置的timeout时间到了，因超时返回false
+     3. 其他线程调用的当前线程的interrupt方法，中断当前线程
+
+ 3. countDown()
+
+    调用该方法后，计数器-1，如果计数器的值为0，唤醒所有因调用await方法而被阻塞的线程
+
+ 4. getCount()
+
+    获取当前计数器的值
 
 
 
+### 10.2 CycleBarrier
+
+让一组线程达到同一个状态后同时执行，多个线程**互相等待**，可重用
+
+new CycleBarrier(int parties, Runnable barrierAction) // 计数器初始值 计数器的值为0后需要执行的任务
+如果计数器的值为N，随后调用await方法的N-1个线程都会因到达屏障点而被阻塞
+
+第N个线程调用await方法后，计数器值为0，第N个线程发出通知**唤醒**前面的N-1个线程
+
+全部线程都到达屏障点后才能一起继续向下执行
+
+基于**独占锁AQS**实现 parties count 记录线程个数
+
+ 1. await() await(timeout, unit)
+
+    调用该方法时，当前线程会被阻塞，直到：
+
+     1. parties个线程都调用了await方法，所有的线程都到了屏障点
+     2. 其他线程调用了当前线程的interrupt()方法中断当前线程
+     3. 与当前屏障点关联的Generation对象的broken标志被设置为true，抛出BrokenBarrierException异常
+
+ 2. dowait(timed, nanos)
+
+    如果所以线程都到达了屏障点，执行初始化时传递的任务，唤醒其他被阻塞的线程
 
 
 
+### 10.3 Semaphore 
+
+内部计数器递增 默认为非公平策略
+
+```java
+new Semaphore(2, true); // 默认为非公平策略，传递第二个参数修改为公平策略 
+```
+
+ 1. acquire()  acquire(permits)
+    
+    获取信号量，如果当前信号量>0，直接返回，否则将当前线程放入AQS的阻塞队列中(当其他线程调用了当前线程的interrupt()方法后，当前线程抛异常返回)
+    
+    可以响应中断
+    
+    for(;;) 获取当前信号量的值 计算当前剩余值
+    
+    如果当前剩余值<0(直接返回负数) 或 CAS设置成功(返回剩余值)
+    
+    公平锁：会先判断当前线程节点的前去节点是否也在等待获取该资源，是的话自己放弃获取的权限，放入AQS阻塞队列，否则去获取
+    
+    可以获取permits个信号量
+    
+ 2. acquireUniterruptibly() acquireUniterruptibly(permits)
+
+    该方法不响应中断(其他线程调用了当前线程的interrupt()方法后，当前线程不会抛出异常)
+
+ 3. release() release(permits)
+
+    将当前信号量的值+1，如果有线程因为调用acquire方法而被阻塞放入AQS阻塞队列，会根据公平策略选择一个信号量个数能被满足的 线程进行激活，激活的线程会尝试获取刚增加的信号量  
+
+    
+
+## 11. 并发编程实践
+
+
+
+### 11.1 异步日志打印 ArrayBlockingQueue
+
+多生产者，单消费者
+
+
+
+### 11.2 Tomcat 的 NioEndPoint 中 ConcurrentLinkedQueue
+
+
+
+### 11.3 ConcurrentHashMap 注意事项
+
+put: 不存在放入，存在则覆盖
+
+putIfAbsent: 不存在放入，存在返回原来的
+
+
+
+### 11.4 SimpleDateFormat 线程不安全
+
+- ThreadLocal
+
+- `synchronized (sdf) { sdf.parse("2022-01-24") }`
+
+
+
+### 11.5 Timer
+
+Timer 运行多个 TimeTask 时，只要其中一个 TimerTask 在执行中向 run 方法外跑出来异常，其他任务也会自动终止 (因为只有一个消费者线程，在 run 方法中最好捕获异常)
+
+多生产者，单消费者
+
+使用 ScheduledThreadPoolExecutor 替代
+
+
+
+### 11.6 需要复用但会被下游修改的参数要深复制
+
+
+
+### 11.7 创建线程和线程池时要指定业务相关的名称
+
+
+
+### 11.8 程序结束后调用 shutdown 关闭线程池
+
+不关闭线程池会导致，线程池中的任务执行完毕 且 主线程退出后，jvm仍然存在
+
+线程池默认创建的线程时 用户线程 (不是守护线程)，线程池中的核心线程一直存在，如果没有任务会被阻塞
+
+shutdown 方法会中断核心线程
+
+
+
+### 11.9 FutureTask 注意事项
+
+线程池使用 FutureTask 时如果拒绝策略为 DiscardPolicy 或 DiscardOldestPolicy，并且在被拒绝的任务的 Future 对象上调用了无参 get 方法，调用线程会一直被阻塞
+
+执行拒绝策略之后返回了一个状态为 NEW 的 Future 对象，调用 get 方法时，只有 > COMPLETING 才会返回，所以会被一直阻塞
+
+使用 Furure 时，尽量使用带超时时间的 get 方法，
+
+
+
+### 11.10 ThreadLocal 导致内存泄漏
+
+TODO
 

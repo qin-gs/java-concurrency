@@ -7,8 +7,11 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 public class FutureTaskTest {
+    /**
+     * 核心线程，最大线程，队列长度 都是 1
+     */
     private final static ThreadPoolExecutor executor = new ThreadPoolExecutor(1, 1, 1L,
-            TimeUnit.MINUTES, new ArrayBlockingQueue<Runnable>(1), new ThreadPoolExecutor.DiscardPolicy());
+            TimeUnit.MINUTES, new ArrayBlockingQueue<Runnable>(1), new ThreadPoolExecutor.AbortPolicy());
 
     public static void main(String[] args) throws ExecutionException, InterruptedException {
         Future futureOne = executor.submit(() -> {
@@ -21,6 +24,7 @@ public class FutureTaskTest {
         });
         Future futureTwo = executor.submit(() -> System.out.println("start runnable two"));
 
+        // 添加两个任务之后，第三个会被拒绝
         Future futureThree = null;
         try {
             futureThree = executor.submit(() -> System.out.println("start runnable three"));
